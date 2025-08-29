@@ -1,0 +1,31 @@
+[project]
+name = "was-affine"
+version = "1.0.0"
+authors = [
+    { name="WASasquatch", email="jordanslost@gmail.com" },
+]
+description = "Apply AFFINE transforms to latent space to improve image quality, especially with light loras."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT License" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: GPU :: NVIDIA CUDA"
+]
+dependencies = [
+    "torch"
+]
+
+[project.urls]
+Repository = "https://github.com/WASasquatch/was_affine"
+# Documentation = "https://github.com/WASasquatch/was_affine/wiki"
+"Bug Tracker" = "https://github.com/WASasquatch/was_affine/issues"
+
+[tool.comfy]
+PublisherId = "was"
+DisplayName = "WAS Affine"
+Icon = "https://raw.githubusercontent.com/WASasquatch/was_affine/main/icon.png"
+Banner = "https://raw.githubusercontent.com/WASasquatch/was_affine/main/banner.png"
+requires-comfyui = ">=1.0.0"
