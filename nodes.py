@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 
-from .utils import gaussian_kernel1d, gaussian_blur, perlin_noise, bayer_matrix
+from .utils import gaussian_blur, perlin_noise, bayer_matrix
 
 
 class WASLatentAffineOptions:
@@ -30,7 +30,7 @@ class WASLatentAffineOptions:
     RETURN_TYPES = ("DICT",)
     RETURN_NAMES = ("options",)
     FUNCTION = "build"
-    CATEGORY = "latent/wan"
+    CATEGORY = "latent/adjust"
 
     def build(
         self,
@@ -90,7 +90,7 @@ class WASLatentAffine:
     RETURN_TYPES = ("LATENT", "MASK")
     RETURN_NAMES = ("latent", "mask")
     FUNCTION = "apply"
-    CATEGORY = "latent/wan"
+    CATEGORY = "latent/adjust"
 
     def _mask_2d(self, h, w, pattern, params, device, dtype, seed):
         if pattern == "white_noise":

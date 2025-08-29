@@ -10,6 +10,13 @@ or bright outputs of lightning loras, and adding back detail where the model hea
 Here we use some agressive settings to give a neutral cinematic look without hard contrast.
 [![affine example](affine_example.gif)](https://streamable.com/wyc2le)
 
+**Things to take note of:**
+- The background rock quality is improved.
+- The trees and bursh look more naturally dispersed.
+- Roads more realistic
+- The foreground detail is *essentially* better preserved.
+- The overall contrast is reduced.
+
 
 ---
 
@@ -21,13 +28,16 @@ Here we use some agressive settings to give a neutral cinematic look without har
 - **Stable video** through temporal modes keep masks consistent or "*noisy*" across frames.  
 - **Subtle influence** goes a long way with small shifts (scale 0.95–0.98, bias −0.01), but playing with the mask strength can yield interesting results. 
   - Some models are more sensitive to this than others.
+- **Not Noise Injection** – does not inject noise, but instead steers the denoiser toward darker or brighter outputs by applying controlled scale and bias to masked regions of the existing noise.
+  - Latent Noise Injection is powerful, but can lead to collapsed noise structure and and color burning.
 
 ---
 
 ## 🔧 Typical workflow
 1. Run an **Advanced KSampler/Custom Sampling** for the high-noise sigmas; stop at your split step.  
 2. Add **Latent Affine**. Optionally add **Latent Affine Options** and connect it to `options`.  
-3. Resume with the second **Advanced KSampler/Custom Sampling** for the low-noise sigmas (It may be best to retain the same scheduler/samplers and seed, but experimentation is always encouraged).  
+3. Resume with the second **Advanced KSampler/Custom Sampling** for the low-noise sigmas 
+  - It may be best to retain the same scheduler/samplers and seed, but experimentation is always encouraged.  
 
 ---
 
