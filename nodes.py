@@ -838,9 +838,178 @@ class WASLatentAffine:
             raise ValueError("latent['samples'] must be 4D [N,C,H,W] or 5D [N,C,F,H,W]")
 
 
+class WASLatentAffineSimple:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "latent": ("LATENT", {"tooltip": "Input latent to apply Affine to."}),
+                "scale": ("FLOAT", {"default": 0.96, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Multiplicative factor. <1 darkens; >1 brightens."}),
+                "noise_pattern": ([
+                    "white_noise",
+                    "pink_noise",
+                    "brown_noise",
+                    "red_noise",
+                    "blue_noise",
+                    "violet_noise",
+                    "purple_noise",
+                    "green_noise",
+                    "black_noise",
+                    "cross_hatch",
+                    "highpass_white",
+                    "ring_noise",
+                    "poisson_blue_mask",
+                    "worley_edges",
+                    "tile_oriented_lines",
+                    "dot_screen_jitter",
+                    "velvet_noise",
+                    "perlin",
+                    "checker",
+                    "bayer",
+                ], {"tooltip": "Pattern used to generate the mask. Auto-tuned for rough/noisy results."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Random seed for mask generation."}),
+                "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "static: same mask for all frames; per_frame: re-generate per frame for lively/noisy motion."}),
+                "frame_seed_stride": ("INT", {"default": 9973, "min": 1, "max": 100000, "tooltip": "Seed increment per frame when temporal_mode is per_frame."}),
+            }
+        }
+
+    RETURN_TYPES = ("LATENT", "MASK")
+    RETURN_NAMES = ("latent", "mask")
+    FUNCTION = "apply"
+    CATEGORY = "latent/adjust"
+
+    def _auto_params(self, h, w, pattern):
+        smin = min(h, w)
+        area = h * w
+        params = {}
+
+        if pattern == "perlin":
+            params.update({
+                "perlin_scale": max(8.0, smin / 14.0),
+                "perlin_octaves": 4,
+                "perlin_persistence": 0.6,
+                "perlin_lacunarity": 2.2,
+            })
+        elif pattern == "poisson_blue_mask":
+            rpx = max(4.0, smin / 28.0)
+            params.update({
+                "poisson_radius_px": float(rpx),
+                "poisson_softness": float(max(2.0, rpx * 0.75)),
+            })
+        elif pattern == "worley_edges":
+            params.update({
+                "worley_points_per_kpx": 4.0,
+                "worley_metric": "L2",
+                "worley_edge_sharpness": 1.2,
+            })
+        elif pattern == "black_noise":
+            params.update({
+                "black_bins_per_kpx": 1024,
+            })
+        elif pattern == "green_noise":
+            params.update({
+                "green_center_frac": 0.4,
+                "green_bandwidth_frac": 0.2,
+            })
+        elif pattern == "cross_hatch":
+            params.update({
+                "hatch_freq_cyc_px": 0.6,
+                "hatch_angle1_deg": 0,
+                "hatch_angle2_deg": 90,
+                "hatch_square": False,
+                "hatch_phase_jitter": 0.1,
+                "hatch_supersample": 1,
+            })
+        elif pattern == "highpass_white":
+            params.update({
+                "highpass_cutoff_frac": 0.75,
+                "highpass_order": 2,
+            })
+        elif pattern == "ring_noise":
+            params.update({
+                "ring_center_frac": 0.85,
+                "ring_bandwidth_frac": 0.08,
+            })
+        elif pattern == "tile_oriented_lines":
+            ts = int(max(8, smin // 32))
+            params.update({
+                "tile_line_tile_size": ts,
+                "tile_line_freq_cyc_px": 0.5,
+                "tile_line_jitter": 0.3,
+            })
+        elif pattern == "dot_screen_jitter":
+            cs = int(max(6, smin // 48))
+            params.update({
+                "dot_cell_size": cs,
+                "dot_jitter_px": 2.0,
+                "dot_fill_ratio": 0.35,
+            })
+        elif pattern == "velvet_noise":
+            params.update({
+                "velvet_taps_per_kpx": 16,
+            })
+        elif pattern == "checker":
+            params.update({
+                "checker_size": int(max(4, smin // 32)),
+            })
+        elif pattern == "bayer":
+            params.update({
+                "bayer_size": 8 if smin < 256 else 16,
+            })
+        return params
+
+    def apply(self, latent, scale, noise_pattern, seed, temporal_mode, frame_seed_stride):
+        x = latent["samples"]
+        device, dtype = x.device, x.dtype
+
+        base_params = {
+            "threshold": 0.0,
+            "invert_mask": False,
+            "blur_ksize": 0,
+            "blur_sigma": 0.0,
+            "mask_strength": 1.0,
+        }
+
+        aff = WASLatentAffine()
+
+        s = torch.as_tensor(scale, dtype=dtype, device=device)
+
+        if x.ndim == 4:
+            n, c, h, w = x.shape
+            params = {**base_params, **self._auto_params(h, w, noise_pattern)}
+            m = aff._make_mask_4d(n, h, w, noise_pattern, params, device, dtype, seed)
+            s_map = (1.0 - m) + m * s.view(1, 1, 1, 1)
+            y = x * s_map
+            out = {"samples": y}
+            for k, v in latent.items():
+                if k != "samples":
+                    out[k] = v
+            mask_img = m.squeeze(1).clamp(0.0, 1.0).to(dtype)
+            return (out, mask_img)
+
+        elif x.ndim == 5:
+            n, c, f, h, w = x.shape
+            params = {**base_params, **self._auto_params(h, w, noise_pattern)}
+            mode = str(temporal_mode)
+            stride = int(frame_seed_stride)
+            m = aff._make_mask_5d(n, f, h, w, noise_pattern, params, device, dtype, seed, mode, stride)
+            s_map = (1.0 - m) + m * s.view(1, 1, 1, 1, 1)
+            y = x * s_map
+            out = {"samples": y}
+            for k, v in latent.items():
+                if k != "samples":
+                    out[k] = v
+            mask_img = m.squeeze(1).contiguous().view(n * f, h, w).clamp(0.0, 1.0).to(dtype)
+            return (out, mask_img)
+
+        else:
+            raise ValueError("latent['samples'] must be 4D [N,C,H,W] or 5D [N,C,F,H,W]")
+
+
 NODE_CLASS_MAPPINGS = {
     "LatentAffineOptions": WASLatentAffineOptions,
     "LatentMaskedAffine": WASLatentAffine,
+    "LatentAffineSimple": WASLatentAffineSimple,
     "LatentAffineCommonOptions": WASLatentAffineCommonOptions,
     "CrossHatchOptions": WASCrossHatchOptions,
     "HighpassWhiteOptions": WASHighpassWhiteOptions,
@@ -860,6 +1029,7 @@ NODE_CLASS_MAPPINGS = {
 NODE_DISPLAY_NAME_MAPPINGS = {
     "LatentAffineOptions": "Latent Affine Super Options",
     "LatentMaskedAffine": "Latent Affine",
+    "LatentAffineSimple": "Latent Affine Simple",
     "LatentAffineCommonOptions": "Latent Affine Common Options",
     "CrossHatchOptions": "Affine Cross-Hatch Noise Options",
     "HighpassWhiteOptions": "Affine High-pass White Noise Options",

@@ -70,6 +70,26 @@ Here we use some aggressive settings to give a neutral cinematic look without ha
 
 ## ⚙️ Parameters
 
+### Latent Affine Simple
+
+A streamlined version of the node for quick toning and texturing. It auto-tunes mask parameters from latent size and chosen pattern. Ideal when you only need multiplicative scale and a procedural mask.
+
+Inputs:
+- `latent` – input latent
+- `scale` – multiplicative gain where mask=1 (e.g., 0.95–0.98 to gently darken)
+- `noise_pattern` – mask generator (Perlin, Poisson, Worley, Bayer, etc.)
+- `seed` – randomness seed
+- `temporal_mode` – `static` (stable across frames) or `per_frame` (varies each frame)
+- `frame_seed_stride` – seed step per frame when `per_frame`
+
+Returns:
+- `latent` – adjusted latent
+- `mask` – the mask used (for visualization/diagnostics)
+
+Notes:
+- Noise parameters are auto-chosen for rough/noisy masks; no extra options needed.
+- For video, use `per_frame` for lively texture or `static` for stability.
+
 ### Latent Affine
 
 <details>
