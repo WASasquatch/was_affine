@@ -10,7 +10,7 @@ or bright outputs of Lightning LoRAs, and adding back detail where the model hea
 
 ### Example
 Here we use some aggressive settings to give a neutral cinematic look without hard contrast.
-[![affine example](affine_example.gif)](https://streamable.com/wyc2le)
+[Affine WAN Example](https://streamable.com/wyc2le)
 
 **Things to take note of:**
 - The background rock quality is improved.
