@@ -1,4 +1,4 @@
-![Affine Logo](banner.png)
+![Affine Logo](was_affine.png)
 
 # AFFINE
 ## Adaptive Field Filtering by Intermittent Noise Enhancement
