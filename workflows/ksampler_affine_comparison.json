@@ -936,44 +936,6 @@
       ]
     },
     {
-      "id": 5,
-      "type": "EmptyLatentImage",
-      "pos": [
-        -435.456787109375,
-        498.2411804199219
-      ],
-      "size": [
-        270,
-        106
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "slot_index": 0,
-          "links": [
-            78,
-            136
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.56",
-        "Node name for S&R": "EmptyLatentImage",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        720,
-        1280,
-        1
-      ]
-    },
-    {
       "id": 33,
       "type": "WASAffineKSampler",
       "pos": [
@@ -1350,12 +1312,12 @@
           {
             "name": "A",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00007_.png&type=temp&subfolder=&rand=0.4855446003314081"
+            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00011_.png&type=temp&subfolder=&rand=0.0912231748992599"
           },
           {
             "name": "B",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00008_.png&type=temp&subfolder=&rand=0.5514204543809205"
+            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00012_.png&type=temp&subfolder=&rand=0.5255972960168483"
           }
         ]
       ]
@@ -1401,12 +1363,12 @@
           {
             "name": "A",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00007_.png&type=temp&subfolder=&rand=0.4855446003314081"
+            "url": "/api/view?filename=rgthree.compare._temp_hghaj_00003_.png&type=temp&subfolder=&rand=0.6473038560096688"
           },
           {
             "name": "B",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00008_.png&type=temp&subfolder=&rand=0.5514204543809205"
+            "url": "/api/view?filename=rgthree.compare._temp_hghaj_00004_.png&type=temp&subfolder=&rand=0.4292340662009857"
           }
         ]
       ]
@@ -1594,7 +1556,7 @@
         58
       ],
       "flags": {},
-      "order": 7,
+      "order": 6,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1619,47 +1581,6 @@
       },
       "widgets_values": [
         "ae.sft"
-      ]
-    },
-    {
-      "id": 32,
-      "type": "PrimitiveInt",
-      "pos": [
-        -435.456787109375,
-        369.4591369628906
-      ],
-      "size": [
-        270,
-        82
-      ],
-      "flags": {},
-      "order": 8,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "INT",
-          "type": "INT",
-          "links": [
-            90,
-            91,
-            114,
-            115,
-            116,
-            117
-          ]
-        }
-      ],
-      "title": "The Seed",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.51",
-        "Node name for S&R": "PrimitiveInt",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        277251746706442,
-        "fixed"
       ]
     },
     {
@@ -1711,6 +1632,74 @@
       "bgcolor": "#653"
     },
     {
+      "id": 87,
+      "type": "Fast Groups Bypasser (rgthree)",
+      "pos": [
+        2268.997802734375,
+        1825.0535888671875
+      ],
+      "size": [
+        420.33636474609375,
+        202
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "OPT_CONNECTION",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "properties": {
+        "matchColors": "",
+        "matchTitle": "",
+        "showNav": true,
+        "sort": "position",
+        "customSortAlphabet": "",
+        "toggleRestriction": "default",
+        "widget_ue_connectable": {}
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
+      "id": 86,
+      "type": "Fast Groups Bypasser (rgthree)",
+      "pos": [
+        -909.7140502929688,
+        61.55876541137695
+      ],
+      "size": [
+        420.33636474609375,
+        202
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "OPT_CONNECTION",
+          "type": "*",
+          "links": null
+        }
+      ],
+      "properties": {
+        "matchColors": "",
+        "matchTitle": "",
+        "showNav": true,
+        "sort": "position",
+        "customSortAlphabet": "",
+        "toggleRestriction": "default",
+        "widget_ue_connectable": {}
+      },
+      "color": "#323",
+      "bgcolor": "#535"
+    },
+    {
       "id": 6,
       "type": "CLIPTextEncode",
       "pos": [
@@ -1751,21 +1740,21 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        "A gritty textured digital monochrome two-tone abstract bizarre painterly concept art, urban anime-style illustration of a fierce young girl with dark skin and a dramatic short hairstyle with a shaved sides. She stands sideways against a heavily graffitied wall, exuding a sophisticated, alluring look on her face. Her outfit includes a two-piece slit yellow mini-skirt, shiny black leggings with yellow geomtric pattern, a black tight accentuating tank top, and a transparent sheer plastic yellow baggy coat. One leg is drawn up slightly exposing soft thigh skin in a relaxed, confident pose, while she holds a phone to her ear. The wall is adorned with bold yellow-themed graffiti, torn posters, and layered street art textures. The scene conveys a dystopian, neo-Tokyo vibe with dramatic, directional lighting and richly painterly textures. Her aura suggests elegance, strength, and defiance.\n\nDark, midnight, ambient, shrouded in darkness, unlit, dim, obscured, silhouettes, dramatic yellow and black contrasting color scheme"
+        "A dynamic point-of-view shot captures a Spartan warrior mid-air in an explosive action pose and yelling expression. His muscular form is clad in bronze armor and a red cape that flares behind him, while he grips his spear tightly angled downward, ready to strike. The perspective exaggerates his leap forward, emphasizing speed and power. Around him, fiery embers scatter through the smoky air, and rock debris explode outward as he dodges unseen attacks. Wind sweeps across his body, accenting the motion of his cape and spear. The atmosphere is chaotic and intense, rendered in cinematic realism with dramatic lighting and sharp detail.\n"
       ],
       "color": "#432",
       "bgcolor": "#653"
     },
     {
-      "id": 87,
-      "type": "Fast Groups Bypasser (rgthree)",
+      "id": 5,
+      "type": "EmptyLatentImage",
       "pos": [
-        2268.997802734375,
-        1825.0535888671875
+        -435.456787109375,
+        498.2411804199219
       ],
       "size": [
-        420.33636474609375,
-        202
+        270,
+        106
       ],
       "flags": {},
       "order": 9,
@@ -1773,33 +1762,37 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "OPT_CONNECTION",
-          "type": "*",
-          "links": null
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            78,
+            136
+          ]
         }
       ],
       "properties": {
-        "matchColors": "",
-        "matchTitle": "",
-        "showNav": true,
-        "sort": "position",
-        "customSortAlphabet": "",
-        "toggleRestriction": "default",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.56",
+        "Node name for S&R": "EmptyLatentImage",
         "widget_ue_connectable": {}
       },
-      "color": "#323",
-      "bgcolor": "#535"
+      "widgets_values": [
+        1280,
+        720,
+        1
+      ]
     },
     {
-      "id": 86,
-      "type": "Fast Groups Bypasser (rgthree)",
+      "id": 32,
+      "type": "PrimitiveInt",
       "pos": [
-        -909.7140502929688,
-        61.55876541137695
+        -435.456787109375,
+        369.4591369628906
       ],
       "size": [
-        420.33636474609375,
-        202
+        270,
+        82
       ],
       "flags": {},
       "order": 10,
@@ -1807,22 +1800,29 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "OPT_CONNECTION",
-          "type": "*",
-          "links": null
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            90,
+            91,
+            114,
+            115,
+            116,
+            117
+          ]
         }
       ],
+      "title": "The Seed",
       "properties": {
-        "matchColors": "",
-        "matchTitle": "",
-        "showNav": true,
-        "sort": "position",
-        "customSortAlphabet": "",
-        "toggleRestriction": "default",
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "PrimitiveInt",
         "widget_ue_connectable": {}
       },
-      "color": "#323",
-      "bgcolor": "#535"
+      "widgets_values": [
+        277251746703209,
+        "fixed"
+      ]
     }
   ],
   "links": [
@@ -2383,10 +2383,10 @@
   "extra": {
     "ue_links": [],
     "ds": {
-      "scale": 2.083175261814924,
+      "scale": 0.8031542428983534,
       "offset": [
-        -680.8532325146983,
-        -1997.9464558555717
+        357.39433402326085,
+        176.59412950558024
       ]
     },
     "links_added_by_ue": [],
