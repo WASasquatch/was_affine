@@ -1,6 +1,7 @@
 import math
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 def gaussian_kernel1d(size: int, sigma: float, device, dtype):
     """
@@ -39,6 +40,105 @@ def gaussian_blur(img: torch.Tensor, ksize: int, sigma: float):
     img = F.conv2d(img, ky.expand(c, 1, -1, 1), padding=(((ksize | 1) // 2), 0), groups=c)
     return img
 
+
+def unsharp_mask(img: torch.Tensor, sigma: float, amount: float, threshold: float = 0.0):
+    """
+    Unsharp mask for tensors shaped (N,C,H,W) or (1,1,H,W), using Gaussian blur.
+
+    Args:
+        img: Input tensor in [0,1] (expected), shape (N,C,H,W).
+        sigma: Gaussian sigma (radius proxy). If <= 0, no sharpening is applied.
+        amount: Sharpening amount (gain) typically in [0..2].
+        threshold: Only enhance details where |img - blur| > threshold. Range [0..1].
+
+    Returns:
+        Sharpened tensor, clamped to [0,1].
+    """
+    if sigma <= 0.0 or amount == 0.0:
+        return img
+    # Compute a reasonable odd kernel size from sigma
+    # k ~ 2*ceil(3*sigma)+1 ensures sufficient support
+    if sigma < 0.2:
+        ksize = 1
+    else:
+        k_est = int(2 * math.ceil(3.0 * float(sigma)) + 1)
+        ksize = max(3, k_est | 1)
+    base = img
+    # Ensure shape is NCHW
+    need_unsqueeze = False
+    if base.dim() == 3:
+        base = base.unsqueeze(0)
+        need_unsqueeze = True
+    if base.dim() != 4:
+        # Fallback: do nothing for unsupported shapes
+        return img
+    blurred = gaussian_blur(base, ksize=ksize, sigma=float(sigma))
+    high = base - blurred
+    if threshold > 0.0:
+        mask = (high.abs() > float(threshold)).to(base.dtype)
+        high = high * mask
+    out = base + float(amount) * high
+    if need_unsqueeze:
+        out = out.squeeze(0)
+    return out
+
+
+def _depthwise_conv(img: torch.Tensor, kernel: torch.Tensor):
+    """Depthwise conv2d for NCHW with per-channel same kernel."""
+    c = img.shape[1]
+    k = kernel.to(dtype=img.dtype, device=img.device)
+    k = k.view(1, 1, *k.shape).expand(c, 1, k.shape[-2], k.shape[-1])
+    pad_h = k.shape[-2] // 2
+    pad_w = k.shape[-1] // 2
+    return F.conv2d(img, k, padding=(pad_h, pad_w), groups=c)
+
+
+def sobel_magnitude_nchw(img: torch.Tensor):
+    """
+    Sobel gradient magnitude for NCHW tensor. Returns (N,1,H,W) normalized to [0,1].
+    """
+    if img.dim() != 4:
+        raise ValueError("sobel_magnitude_nchw expects NCHW tensor")
+    # Kernels
+    kx = torch.tensor([[1, 0, -1], [2, 0, -2], [1, 0, -1]])
+    ky = torch.tensor([[1, 2, 1], [0, 0, 0], [-1, -2, -1]])
+    gx = _depthwise_conv(img, kx)
+    gy = _depthwise_conv(img, ky)
+    mag = torch.sqrt(gx * gx + gy * gy + 1e-12)
+    mag = mag.mean(dim=1, keepdim=True)
+    mag = (mag - mag.amin(dim=(-2, -1), keepdim=True)) / (mag.amax(dim=(-2, -1), keepdim=True) - mag.amin(dim=(-2, -1), keepdim=True) + 1e-12)
+    return mag
+
+
+def laplacian_magnitude_nchw(img: torch.Tensor):
+    """Laplacian-of-Gaussian-lite: plain Laplacian magnitude per-pixel, normalized to [0,1], shape (N,1,H,W)."""
+    if img.dim() != 4:
+        raise ValueError("laplacian_magnitude_nchw expects NCHW tensor")
+    k = torch.tensor([[0, 1, 0], [1, -4, 1], [0, 1, 0]])
+    lo = _depthwise_conv(img, k)
+    mag = lo.abs().mean(dim=1, keepdim=True)
+    mag = (mag - mag.amin(dim=(-2, -1), keepdim=True)) / (mag.amax(dim=(-2, -1), keepdim=True) - mag.amin(dim=(-2, -1), keepdim=True) + 1e-12)
+    return mag
+
+
+def local_variance_nchw(img: torch.Tensor, ksize: int = 7):
+    """
+    Local variance over a sliding window per channel, averaged across channels, normalized to [0,1].
+    """
+    if img.dim() != 4:
+        raise ValueError("local_variance_nchw expects NCHW tensor")
+    k = max(3, int(ksize) | 1)
+    c = img.shape[1]
+    device, dtype = img.device, img.dtype
+    w = torch.ones((1, 1, k, k), device=device, dtype=dtype) / float(k * k)
+    w = w.expand(c, 1, k, k)
+    pad = (k // 2, k // 2)
+    mean = F.conv2d(img, w, padding=pad, groups=c)
+    mean2 = F.conv2d(img * img, w, padding=pad, groups=c)
+    var = (mean2 - mean * mean).clamp_min(0.0)
+    var = var.mean(dim=1, keepdim=True)
+    var = (var - var.amin(dim=(-2, -1), keepdim=True)) / (var.amax(dim=(-2, -1), keepdim=True) - var.amin(dim=(-2, -1), keepdim=True) + 1e-12)
+    return var
 
 def perlin_noise(h, w, scale, octaves, persistence, lacunarity, seed, device, dtype):
     """
@@ -182,6 +282,127 @@ def spectral_noise(h: int, w: int, beta: float, seed: int, device, dtype):
     x = torch.fft.ifft2(F_shaped).real
     x = (x - x.min()) / (x.max() - x.min() + 1e-12)
     return x
+
+
+# -------------------------
+# Affine schedule utilities
+# -------------------------
+def _ease_value(t, curve, back_k=1.70158, bezier=None):
+    """Return eased value in [0,1] for t in [0,1] given curve name.
+    Supported curves: linear, easeIn/Out/InOut Sine, Quad, Cubic, Quart, Quint, Expo, Circ, Back, cubicBezier.
+    """
+    t = max(0.0, min(1.0, float(t)))
+    c = (curve or "easeInOutSine").lower()
+    # Linear
+    if c == "linear":
+        return t
+    # Sine
+    if c == "easeinsine":
+        return 1 - math.cos((t * math.pi) / 2)
+    if c == "easeoutsine":
+        return math.sin((t * math.pi) / 2)
+    if c == "easeinoutsine":
+        return -(math.cos(math.pi * t) - 1) / 2
+    # Power families
+    pow_map = {"easeinquad": 2, "easeincubic": 3, "easeinquart": 4, "easeinquint": 5}
+    if c in pow_map:
+        return t ** pow_map[c]
+    if c in {"easeoutquad", "easeoutcubic", "easeoutquart", "easeoutquint"}:
+        p = {"easeoutquad": 2, "easeoutcubic": 3, "easeoutquart": 4, "easeoutquint": 5}[c]
+        return 1 - (1 - t) ** p
+    if c in {"easeinoutquad", "easeinoutcubic", "easeinoutquart", "easeinoutquint"}:
+        p = {"easeinoutquad": 2, "easeinoutcubic": 3, "easeinoutquart": 4, "easeinoutquint": 5}[c]
+        if t < 0.5:
+            return (2 * t) ** p / 2
+        return 1 - ((-2 * t + 2) ** p) / 2
+    # Expo
+    if c == "easeinexpo":
+        return 0 if t == 0 else 2 ** (10 * t - 10)
+    if c == "easeoutexpo":
+        return 1 if t == 1 else 1 - 2 ** (-10 * t)
+    if c == "easeinoutexpo":
+        if t == 0 or t == 1:
+            return t
+        if t < 0.5:
+            return (2 ** (20 * t - 10)) / 2
+        return (2 - 2 ** (-20 * t + 10)) / 2
+    # Circ
+    if c == "easeincirc":
+        return 1 - math.sqrt(1 - t * t)
+    if c == "easeoutcirc":
+        return math.sqrt(1 - (t - 1) ** 2)
+    if c == "easeinoutcirc":
+        if t < 0.5:
+            return (1 - math.sqrt(1 - (2 * t) ** 2)) / 2
+        return (math.sqrt(1 - (-2 * t + 2) ** 2) + 1) / 2
+    # Back
+    if c == "easeinback":
+        k = back_k
+        return (k + 1) * t ** 3 - k * t ** 2
+    if c == "easeoutback":
+        k = back_k
+        return 1 + (k + 1) * (t - 1) ** 3 + k * (t - 1) ** 2
+    if c == "easeinoutback":
+        k = back_k * 1.525
+        if t < 0.5:
+            return ((2 * t) ** 2 * ((k + 1) * 2 * t - k)) / 2
+        return (((2 * t - 2) ** 2) * ((k + 1) * (t * 2 - 2) + k) + 2) / 2
+    # Cubic Bezier (optional) – approximate on y
+    if c == "cubicbezier" and bezier is not None:
+        p1x, p1y, p2x, p2y = bezier
+        u = 1 - t
+        by = (u ** 3) * 0 + 3 * (u ** 2) * t * p1y + 3 * u * (t ** 2) * p2y + (t ** 3) * 1
+        return by
+    return t
+
+
+def affine_step_schedule(steps: int, sched: dict):
+    """Build per-step multipliers [0..1] using easing and shaping options dict.
+    Keys: start, end, bias, exponent, start_offset, end_offset, curve, back_k, bezier.
+    """
+    start = float(sched.get("start", 0.2))
+    end = float(sched.get("end", 0.8))
+    bias = float(sched.get("bias", 0.5))
+    exponent = float(sched.get("exponent", 1.0))
+    start_offset = float(sched.get("start_offset", 0.0))
+    end_offset = float(sched.get("end_offset", 0.0))
+    curve = str(sched.get("curve", "easeInOutSine"))
+    back_k = float(sched.get("back_k", 1.70158))
+    bez = sched.get("bezier", None)
+
+    start = min(max(0.0, start), 1.0)
+    end = min(max(0.0, end), 1.0)
+    if steps <= 0:
+        return np.zeros((0,), dtype=np.float32)
+    start, end = (start, end) if start <= end else (end, start)
+    mid = start + bias * (end - start)
+    multipliers = np.zeros(steps, dtype=np.float32)
+
+    start_idx, mid_idx, end_idx = [int(round(x * max(steps - 1, 0))) for x in [start, mid, end]]
+
+    # Rising 0->1 eased
+    if mid_idx >= start_idx:
+        count = (mid_idx - start_idx) + 1
+        ts = np.linspace(0.0, 1.0, count, dtype=np.float32)
+        ev = np.array([_ease_value(float(t), curve, back_k=back_k, bezier=bez) for t in ts], dtype=np.float32)
+        ev = np.power(ev, max(0.0, exponent))
+        if ev.size > 0:
+            ev = ev * (1.0 - start_offset) + start_offset
+        multipliers[start_idx:mid_idx + 1] = ev
+
+    # Falling 1->0 eased (mirror)
+    if end_idx >= mid_idx:
+        count = (end_idx - mid_idx) + 1
+        ts = np.linspace(1.0, 0.0, count, dtype=np.float32)
+        ev = np.array([_ease_value(float(t), curve, back_k=back_k, bezier=bez) for t in ts], dtype=np.float32)
+        ev = np.power(ev, max(0.0, exponent))
+        if ev.size > 0:
+            ev = ev * (1.0 - end_offset) + end_offset
+        multipliers[mid_idx:end_idx + 1] = ev
+
+    multipliers[:start_idx] = start_offset
+    multipliers[end_idx + 1:] = end_offset
+    return multipliers.astype(np.float32)
 
 
 def _rand_generator(seed: int, device):

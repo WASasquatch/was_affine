@@ -1,0 +1,1291 @@
+{
+  "id": "908d0bfb-e192-4627-9b57-147496e6e2dd",
+  "revision": 0,
+  "last_node_id": 76,
+  "last_link_id": 122,
+  "nodes": [
+    {
+      "id": 40,
+      "type": "DualCLIPLoader",
+      "pos": [
+        -320,
+        290
+      ],
+      "size": [
+        270,
+        130
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "CLIP",
+          "type": "CLIP",
+          "links": [
+            64
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "DualCLIPLoader",
+        "models": [
+          {
+            "name": "clip_l.safetensors",
+            "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors",
+            "directory": "text_encoders"
+          },
+          {
+            "name": "t5xxl_fp16.safetensors",
+            "url": "https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors",
+            "directory": "text_encoders"
+          }
+        ],
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "clip_l.safetensors",
+        "t5xxl_fp16.safetensors",
+        "flux",
+        "default"
+      ]
+    },
+    {
+      "id": 43,
+      "type": "MarkdownNote",
+      "pos": [
+        -870,
+        110
+      ],
+      "size": [
+        520,
+        390
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "title": "Model links",
+      "properties": {
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "## Model links\n\n**Diffusion Model**\n\n- [flux1-krea-dev_fp8_scaled.safetensors](https://huggingface.co/Comfy-Org/FLUX.1-Krea-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-krea-dev_fp8_scaled.safetensors)\n\nIf you need the original weights, head to [black-forest-labs/FLUX.1-Krea-dev](https://huggingface.co/black-forest-labs/FLUX.1-Krea-dev/), accept the agreement in the repo, then click the link below to download the models:\n\n- [flux1-krea-dev.safetensors](https://huggingface.co/black-forest-labs/FLUX.1-Krea-dev/resolve/main/flux1-krea-dev.safetensors)\n\n**Text Encoder**\n\n- [clip_l.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/blob/main/clip_l.safetensors)\n\n- [t5xxl_fp16.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors) or [t5xxl_fp8_e4m3fn_scaled.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp8_e4m3fn_scaled.safetensors)\n\n**VAE**\n\n- [ae.safetensors](https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors)\n\n\n```\nComfyUI/\n├── models/\n│   ├── diffusion_models/\n│   │   └─── flux1-krea-dev_fp8_scaled.safetensors\n│   ├── text_encoders/\n│   │   ├── clip_l.safetensors\n│   │   └─── t5xxl_fp16.safetensors # or t5xxl_fp8_e4m3fn_scaled.safetensors\n│   └── vae/\n│       └── ae.safetensors\n```\n"
+      ],
+      "color": "#432",
+      "bgcolor": "#653"
+    },
+    {
+      "id": 57,
+      "type": "Image Resize",
+      "pos": [
+        951.1813354492188,
+        630.4288330078125
+      ],
+      "size": [
+        270,
+        178
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 84
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            86
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-ns",
+        "ver": "f86447721c18758d7b3b6ae5769f52344a3d764a",
+        "Node name for S&R": "Image Resize",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "rescale",
+        "false",
+        "lanczos",
+        2,
+        1024,
+        1536
+      ]
+    },
+    {
+      "id": 8,
+      "type": "VAEDecode",
+      "pos": [
+        954.0701293945312,
+        539.768310546875
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 80
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 58
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            9,
+            84
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "VAEDecode",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 61,
+      "type": "KSamplerAdvanced",
+      "pos": [
+        600,
+        1500
+      ],
+      "size": [
+        304.66668701171875,
+        546
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 101
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 99
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 97
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 111
+        },
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": 95
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            91
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "KSamplerAdvanced",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "disable",
+        277251746703202,
+        "fixed",
+        20,
+        1,
+        "res_6s_ode",
+        "sgm_uniform",
+        10,
+        10000,
+        "disable"
+      ]
+    },
+    {
+      "id": 39,
+      "type": "VAELoader",
+      "pos": [
+        -320,
+        470
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "VAE",
+          "type": "VAE",
+          "links": [
+            58,
+            85,
+            92
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "VAELoader",
+        "models": [
+          {
+            "name": "ae.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors",
+            "directory": "vae"
+          }
+        ],
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "ae.sft"
+      ]
+    },
+    {
+      "id": 42,
+      "type": "ConditioningZeroOut",
+      "pos": [
+        -10,
+        460
+      ],
+      "size": [
+        200,
+        30
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "conditioning",
+          "type": "CONDITIONING",
+          "link": 66
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            73,
+            77,
+            96,
+            97
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "ConditioningZeroOut",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 38,
+      "type": "UNETLoader",
+      "pos": [
+        -320,
+        150
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "MODEL",
+          "type": "MODEL",
+          "links": [
+            71,
+            79,
+            100,
+            101
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "UNETLoader",
+        "models": [
+          {
+            "name": "flux1-krea-dev_fp8_scaled.safetensors",
+            "url": "https://huggingface.co/Comfy-Org/FLUX.1-Krea-dev_ComfyUI/resolve/main/split_files/diffusion_models/flux1-krea-dev_fp8_scaled.safetensors",
+            "directory": "diffusion_models"
+          }
+        ],
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "flux1-krea-dev_fp8_scaled.safetensors",
+        "default"
+      ]
+    },
+    {
+      "id": 63,
+      "type": "VAEDecode",
+      "pos": [
+        920,
+        1510
+      ],
+      "size": [
+        210,
+        46
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 18,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "samples",
+          "type": "LATENT",
+          "link": 91
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 92
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "slot_index": 0,
+          "links": [
+            93
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "VAEDecode",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 54,
+      "type": "KSamplerAdvanced",
+      "pos": [
+        610,
+        540
+      ],
+      "size": [
+        304.66668701171875,
+        546
+      ],
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 79
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 78
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 77
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 108
+        },
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": 82
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            80
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "KSamplerAdvanced",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "disable",
+        277251746703202,
+        "fixed",
+        20,
+        1,
+        "res_6s_ode",
+        "sgm_uniform",
+        10,
+        10000,
+        "disable"
+      ]
+    },
+    {
+      "id": 27,
+      "type": "EmptySD3LatentImage",
+      "pos": [
+        -320,
+        630
+      ],
+      "size": [
+        270,
+        120
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "slot_index": 0,
+          "links": [
+            74
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "EmptySD3LatentImage",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1280,
+        720,
+        1
+      ]
+    },
+    {
+      "id": 52,
+      "type": "KSamplerAdvanced",
+      "pos": [
+        -8.939355850219727,
+        541.470947265625
+      ],
+      "size": [
+        304.66668701171875,
+        546
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 71
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 72
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 73
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 74
+        },
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": 81
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            107
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "KSamplerAdvanced",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "enable",
+        277251746703202,
+        "fixed",
+        20,
+        1,
+        "res_6s_ode",
+        "sgm_uniform",
+        0,
+        10,
+        "enable"
+      ]
+    },
+    {
+      "id": 58,
+      "type": "VAEEncode",
+      "pos": [
+        1075.52978515625,
+        853.4630126953125
+      ],
+      "size": [
+        140,
+        46
+      ],
+      "flags": {},
+      "order": 14,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "pixels",
+          "type": "IMAGE",
+          "link": 86
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 85
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            90
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "VAEEncode",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 9,
+      "type": "SaveImage",
+      "pos": [
+        1272.622802734375,
+        527.2447509765625
+      ],
+      "size": [
+        640,
+        660
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 9
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "SaveImage",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "flux_krea/flux_krea"
+      ]
+    },
+    {
+      "id": 45,
+      "type": "CLIPTextEncode",
+      "pos": [
+        10,
+        170
+      ],
+      "size": [
+        330,
+        210
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "clip",
+          "type": "CLIP",
+          "link": 64
+        }
+      ],
+      "outputs": [
+        {
+          "name": "CONDITIONING",
+          "type": "CONDITIONING",
+          "links": [
+            66,
+            72,
+            78,
+            98,
+            99
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.47",
+        "Node name for S&R": "CLIPTextEncode",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "A dynamic point-of-view shot captures a Spartan warrior mid-air in an explosive action pose and yelling expression. His muscular form is clad in bronze armor and a red cape that flares behind him, while he grips his spear tightly angled downward, ready to strike. The perspective exaggerates his leap forward, emphasizing speed and power. Around him, fiery embers scatter through the smoky air, and rock debris explode outward as he dodges unseen attacks. Wind sweeps across his body, accenting the motion of his cape and spear. The atmosphere is chaotic and intense, rendered in cinematic realism with dramatic lighting and sharp detail.\n"
+      ]
+    },
+    {
+      "id": 55,
+      "type": "PrimitiveInt",
+      "pos": [
+        -319.7803649902344,
+        811.0196533203125
+      ],
+      "size": [
+        270,
+        82
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "INT",
+          "type": "INT",
+          "links": [
+            81,
+            82,
+            94,
+            95
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "PrimitiveInt",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        277251746703209,
+        "fixed"
+      ]
+    },
+    {
+      "id": 70,
+      "type": "LatentAffineSimple",
+      "pos": [
+        310,
+        1500
+      ],
+      "size": [
+        270,
+        198
+      ],
+      "flags": {},
+      "order": 16,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 119
+        }
+      ],
+      "outputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            111
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-affine",
+        "ver": "d2c758cd71cdd73b2cc7fdc15572508e0db2dfb6",
+        "Node name for S&R": "LatentAffineSimple",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1.149,
+        "worley_edges",
+        0,
+        "fixed",
+        "static",
+        9973
+      ]
+    },
+    {
+      "id": 60,
+      "type": "KSamplerAdvanced",
+      "pos": [
+        -30,
+        1490
+      ],
+      "size": [
+        304.66668701171875,
+        546
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 100
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 98
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 96
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 90
+        },
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": 94
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            119
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "KSamplerAdvanced",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "enable",
+        277251746703202,
+        "fixed",
+        20,
+        1,
+        "res_6s_ode",
+        "sgm_uniform",
+        9,
+        10,
+        "enable"
+      ]
+    },
+    {
+      "id": 64,
+      "type": "SaveImage",
+      "pos": [
+        1270,
+        1490
+      ],
+      "size": [
+        640,
+        660
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 93
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.40",
+        "Node name for S&R": "SaveImage",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "flux_krea/flux_krea"
+      ]
+    },
+    {
+      "id": 69,
+      "type": "LatentAffineSimple",
+      "pos": [
+        320.0562438964844,
+        543.6166381835938
+      ],
+      "size": [
+        270,
+        198
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "link": 107
+        }
+      ],
+      "outputs": [
+        {
+          "name": "latent",
+          "type": "LATENT",
+          "links": [
+            108
+          ]
+        },
+        {
+          "name": "mask",
+          "type": "MASK",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-affine",
+        "ver": "d2c758cd71cdd73b2cc7fdc15572508e0db2dfb6",
+        "Node name for S&R": "LatentAffineSimple",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1.2,
+        "worley_edges",
+        0,
+        "fixed",
+        "static",
+        9973
+      ]
+    }
+  ],
+  "links": [
+    [
+      9,
+      8,
+      0,
+      9,
+      0,
+      "IMAGE"
+    ],
+    [
+      58,
+      39,
+      0,
+      8,
+      1,
+      "VAE"
+    ],
+    [
+      64,
+      40,
+      0,
+      45,
+      0,
+      "CLIP"
+    ],
+    [
+      66,
+      45,
+      0,
+      42,
+      0,
+      "CONDITIONING"
+    ],
+    [
+      71,
+      38,
+      0,
+      52,
+      0,
+      "MODEL"
+    ],
+    [
+      72,
+      45,
+      0,
+      52,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      73,
+      42,
+      0,
+      52,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      74,
+      27,
+      0,
+      52,
+      3,
+      "LATENT"
+    ],
+    [
+      77,
+      42,
+      0,
+      54,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      78,
+      45,
+      0,
+      54,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      79,
+      38,
+      0,
+      54,
+      0,
+      "MODEL"
+    ],
+    [
+      80,
+      54,
+      0,
+      8,
+      0,
+      "LATENT"
+    ],
+    [
+      81,
+      55,
+      0,
+      52,
+      4,
+      "INT"
+    ],
+    [
+      82,
+      55,
+      0,
+      54,
+      4,
+      "INT"
+    ],
+    [
+      84,
+      8,
+      0,
+      57,
+      0,
+      "IMAGE"
+    ],
+    [
+      85,
+      39,
+      0,
+      58,
+      1,
+      "VAE"
+    ],
+    [
+      86,
+      57,
+      0,
+      58,
+      0,
+      "IMAGE"
+    ],
+    [
+      90,
+      58,
+      0,
+      60,
+      3,
+      "LATENT"
+    ],
+    [
+      91,
+      61,
+      0,
+      63,
+      0,
+      "LATENT"
+    ],
+    [
+      92,
+      39,
+      0,
+      63,
+      1,
+      "VAE"
+    ],
+    [
+      93,
+      63,
+      0,
+      64,
+      0,
+      "IMAGE"
+    ],
+    [
+      94,
+      55,
+      0,
+      60,
+      4,
+      "INT"
+    ],
+    [
+      95,
+      55,
+      0,
+      61,
+      4,
+      "INT"
+    ],
+    [
+      96,
+      42,
+      0,
+      60,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      97,
+      42,
+      0,
+      61,
+      2,
+      "CONDITIONING"
+    ],
+    [
+      98,
+      45,
+      0,
+      60,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      99,
+      45,
+      0,
+      61,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      100,
+      38,
+      0,
+      60,
+      0,
+      "MODEL"
+    ],
+    [
+      101,
+      38,
+      0,
+      61,
+      0,
+      "MODEL"
+    ],
+    [
+      107,
+      52,
+      0,
+      69,
+      0,
+      "LATENT"
+    ],
+    [
+      108,
+      69,
+      0,
+      54,
+      3,
+      "LATENT"
+    ],
+    [
+      111,
+      70,
+      0,
+      61,
+      3,
+      "LATENT"
+    ],
+    [
+      119,
+      60,
+      0,
+      70,
+      0,
+      "LATENT"
+    ]
+  ],
+  "groups": [
+    {
+      "id": 1,
+      "title": "Step 1 - Load Models Here",
+      "bounding": [
+        -330,
+        80,
+        300,
+        460
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 2,
+      "title": "Step 2 - Image Size",
+      "bounding": [
+        -330,
+        560,
+        300,
+        200
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    },
+    {
+      "id": 3,
+      "title": "Step 3 - Prompt",
+      "bounding": [
+        -10,
+        80,
+        360,
+        333.6000061035156
+      ],
+      "color": "#3f789e",
+      "font_size": 24,
+      "flags": {}
+    }
+  ],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.9233434098820572,
+      "offset": [
+        1507.2999595709416,
+        -19.28943282381141
+      ]
+    },
+    "frontendVersion": "1.25.11",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true,
+    "ue_links": [],
+    "links_added_by_ue": []
+  },
+  "version": 0.4
+}
