@@ -208,5 +208,5 @@ __marimo__/
 
 
 # Ignore Windows ADS quarantine metadata files
-*.Zone.Identifier
-*.zone.identifier
+*:Zone.Identifier
+*:zone.identifier
