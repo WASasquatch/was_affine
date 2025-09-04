@@ -683,6 +683,7 @@ class WASAffineKSamplerAdvanced:
                 "affine_seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
                 "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "If enabled, increment affine seed for each group application (temporal masks)."}),
                 "affine_schedule": ("DICT", {"tooltip": "Use WASAffineScheduleOptions (interpreted over total steps)."}),
+                "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "Temporal behavior of the affine mask for video latents. 'static': one mask reused across all frames at each application. 'per_frame': re-generate mask per frame (livelier/noisier motion)."}),
             },
             "optional": {
                 "external_mask": ("IMAGE", {"tooltip": "Optional external mask image; when provided and pattern != external_mask, it gates where affine applies."}),
@@ -723,6 +724,7 @@ class WASAffineKSamplerAdvanced:
         end_at_step=10000,
         return_with_leftover_noise=False,
         merge_inactive_steps=True,
+        temporal_mode="static",
     ):
         import inspect as _inspect
         import torch as _torch
@@ -738,8 +740,10 @@ class WASAffineKSamplerAdvanced:
         if not isinstance(latent_image, dict) or "samples" not in latent_image:
             raise ValueError("latent_image must be a LATENT dict with 'samples'")
         cur = latent_image["samples"]
-        if not isinstance(cur, _torch.Tensor) or cur.dim() != 4:
-            raise ValueError("LATENT['samples'] must be 4D tensor [B,C,H,W]")
+        if not isinstance(cur, _torch.Tensor) or cur.dim() not in (4, 5):
+            raise ValueError("LATENT['samples'] must be 4D [B,C,H,W] or 5D [B,C,F,H,W]")
+
+        # Pass through 4D image latents and 5D video latents directly to KSamplerAdvanced
 
         sched = affine_schedule or {}
         start = float(sched.get("start", 0.2))
@@ -978,7 +982,7 @@ class WASAffineKSamplerAdvanced:
                         s_val,
                         b_val,
                         pattern,
-                        "static",
+                        temporal_mode,
                         seed_i,
                         external_mask=external_mask,
                         noise_options=noise_options,
@@ -1043,13 +1047,21 @@ class WASAffineKSamplerAdvanced:
         # If no mask was applied (schedule inactive), return a zero mask matching the batch/spatial dims
         if mask_img is None:
             try:
-                b, c, h, w = cur.shape
-                mask_img = _torch.zeros((b, h, w), dtype=cur.dtype, device=cur.device)
-            except Exception:
-                import torch as _torch  # fallback if _torch not in scope due to errors
-                if isinstance(cur, _torch.Tensor) and cur.dim() == 4:
+                if cur.dim() == 5:
+                    b, c, f, h, w = cur.shape
+                    mask_img = _torch.zeros((b * f, h, w), dtype=cur.dtype, device=cur.device)
+                else:
                     b, c, h, w = cur.shape
                     mask_img = _torch.zeros((b, h, w), dtype=cur.dtype, device=cur.device)
+            except Exception:
+                import torch as _torch  # fallback if _torch not in scope due to errors
+                if isinstance(cur, _torch.Tensor):
+                    if cur.dim() == 5:
+                        b, c, f, h, w = cur.shape
+                        mask_img = _torch.zeros((b * f, h, w), dtype=cur.dtype, device=cur.device)
+                    elif cur.dim() == 4:
+                        b, c, h, w = cur.shape
+                        mask_img = _torch.zeros((b, h, w), dtype=cur.dtype, device=cur.device)
                 else:
                     mask_img = None
         return ({"samples": cur}, mask_img)
