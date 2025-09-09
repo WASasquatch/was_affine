@@ -1,10 +1,10 @@
 [project]
 name = "was-affine"
-version = "1.2.1"
+version = "1.4.0"
 authors = [
     { name="WASasquatch", email="jordanslost@gmail.com" },
 ]
-description = "Apply AFFINE transforms to latent space to improve image quality, especially with light loras."
+description = "Apply AFFINE noise transforms to latent space to improve image quality, especially with light loras."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT License" }

@@ -768,7 +768,6 @@ def velvet_noise(h: int, w: int, tap_count: int, seed: int, device, dtype):
     flat = v.view(-1)
     flat[perm] = signs
 
-    # Map from {-1, 0, +1} to [0,1] with 0.5 baseline
     v = (v + 1.0) * 0.5
     return v
 
@@ -806,10 +805,9 @@ def black_noise_2d(h: int, w: int, seed: int, device, dtype, bins: int = 2048):
     if seed is not None:
         rng.manual_seed(seed)
 
-    # rFFT spectrum shape for real inputs
     spec_shape = (h, w // 2 + 1)
     total_bins = spec_shape[0] * spec_shape[1]
-    k = int(max(1, min(bins, total_bins - 1)))  # exclude DC ideally
+    k = int(max(1, min(bins, total_bins - 1)))
 
     spec = torch.zeros(spec_shape, device=device, dtype=torch.complex64)
     idx = torch.randperm(total_bins, generator=rng, device=device)
@@ -828,3 +826,27 @@ def black_noise_2d(h: int, w: int, seed: int, device, dtype, bins: int = 2048):
     x = x.to(dtype)
     x = (x - x.min()) / (x.max() - x.min() + 1e-12)
     return x
+
+
+def get_cfg_for_step(cfg_values, step_index, total_steps):
+    """
+    Get the CFG value for a specific step from a list of CFG values.
+    If step_index exceeds the list length, repeat the last value.
+    
+    Args:
+        cfg_values: List of CFG float values or single float value
+        step_index: Current step index (0-based)
+        total_steps: Total number of steps
+        
+    Returns:
+        float: CFG value for the current step
+    """
+    if isinstance(cfg_values, (int, float)):
+        return float(cfg_values)
+    
+    if isinstance(cfg_values, (list, tuple)) and len(cfg_values) > 0:
+        if step_index < len(cfg_values):
+            return float(cfg_values[step_index])
+        else:
+            return float(cfg_values[-1])
+    return 4.5
