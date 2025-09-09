@@ -1444,7 +1444,7 @@ class WASAffinePatternNoise:
             "required": {
                 "pattern": (patterns, {"default": "white_noise", "tooltip": "Pattern used to synthesize structured noise (excludes solid and content-derived patterns)."}),
                 "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for reproducible noise generation."}),
-                "affine_scale": ("FLOAT", {"default": 0.3, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Pattern amplitude multiplier applied to the base ComfyUI noise. Controls how much the pattern affects the final noise."}),
+                "affine_scale": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Pattern amplitude multiplier applied to the base ComfyUI noise. Controls how much the pattern affects the final noise."}),
                 "normalize": ("BOOLEAN", {"default": True, "tooltip": "If enabled, center and scale the generated pattern to zero-mean unit-std before amplitude scaling."}),
                 "affine_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.001, "tooltip": "Additive bias applied where the pattern mask is active. Positive values brighten, negative values darken."}),
             },
@@ -2280,6 +2280,7 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
 
 
 if _usdu_available():
+    print("[was-affine] Ultimate Custom Advanced Affine Upscalers loaded.")
     AFFINE_NODE_CLASS_MAPPINGS.update({
         "WASUltimateCustomAdvancedAffineNoUpscale": WASUltimateCustomAdvancedAffineNoUpscale,
         "WASUltimateCustomAdvancedAffineCustom": WASUltimateCustomAdvancedAffineCustom,
