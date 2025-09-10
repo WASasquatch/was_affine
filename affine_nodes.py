@@ -1716,17 +1716,14 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         noise_options=None,
         temporal_mode="static",
     ):
-        # Encode image -> latent
         try:
             latent = vae.encode(image)
         except Exception as e:
             raise RuntimeError(f"VAE.encode failed: {e}")
 
-        # Build guider/sampler/sigmas
         try:
             g = comfy.samplers.CFGGuider(model)
             g.set_conds(positive, negative)
-            # Use first CFG value if a list is provided (will be handled dynamically in WASAffineCustomAdvanced)
             cfg_value = get_cfg_for_step(cfg, 0, steps)
             g.set_cfg(cfg_value)
             sampler_obj = comfy.samplers.sampler_object(sampler_name)
@@ -1734,9 +1731,7 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         except Exception as e:
             raise RuntimeError(f"Failed to prepare sampler: {e}")
 
-        # Prepare latent and world-aligned noise (full canvas)
         x_full = latent["samples"] if isinstance(latent, dict) else latent
-        # Choose a target device based on the model/guider if available
         try:
             mp = getattr(g, 'model_patcher', None)
             target_device = getattr(mp, 'device', x_full.device) if mp is not None else x_full.device
@@ -1747,11 +1742,23 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
             if isinstance(latent, dict):
                 latent = dict(latent)
                 latent["samples"] = x_full
-        b, cL, hL, wL = x_full.shape
-        # Compute pixel->latent scale
+        
+        if len(x_full.shape) == 5:
+            b, cL, fL, hL, wL = x_full.shape
+            is_video = True
+        elif len(x_full.shape) == 4:
+            b, cL, hL, wL = x_full.shape
+            is_video = False
+        else:
+            raise ValueError(f"Unsupported latent shape: {x_full.shape}. Expected 4D or 5D tensor.")
+        
         try:
-            # image: [N,H,W,C]
-            _, Hpx, Wpx, _ = image.shape
+            if len(image.shape) == 5 and is_video:
+                _, _, Hpx, Wpx, _ = image.shape
+            elif len(image.shape) == 4:
+                _, Hpx, Wpx, _ = image.shape
+            else:
+                raise ValueError(f"Unsupported image shape: {image.shape}")
             scale_h = max(1.0, float(Hpx) / float(hL))
             scale_w = max(1.0, float(Wpx) / float(wL))
         except Exception:
@@ -1765,38 +1772,31 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         padL = to_lat(int(tile_padding), (scale_h + scale_w) * 0.5)
         blurL = to_lat(int(mask_blur), (scale_h + scale_w) * 0.5)
 
-        # Build full-canvas noise once
         try:
             full_noise = noise.generate_noise(latent)
             if isinstance(full_noise, torch.Tensor):
                 full_noise = full_noise.to(device=x_full.device, dtype=x_full.dtype)
             else:
-                # Unexpected type; fallback to zeros
                 full_noise = torch.zeros_like(x_full)
         except Exception:
             full_noise = torch.zeros_like(x_full)
 
-        # Output accumulation buffers
         out_acc = torch.zeros_like(x_full)
         w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
 
-        # Feather mask generator (tent with blur width ~ blurL within padding)
         def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
-            # Local tile size
             HH = yi1 - yi0
             WW = xi1 - xi0
             yy = torch.arange(HH, device=x_full.device, dtype=x_full.dtype).view(HH, 1)
             xx = torch.arange(WW, device=x_full.device, dtype=x_full.dtype).view(1, WW)
-            # Distances to edges
             top = yy.float()
             left = xx.float()
             bottom = (HH - 1) - yy.float()
             right = (WW - 1) - xx.float()
             d = torch.min(torch.min(top, bottom), torch.min(left, right))
             ramp = torch.clamp(d / float(max(1, blurL)), 0.0, 1.0)
-            return ramp  # [HH,WW] in [0,1]
+            return ramp
 
-        # Iterate tiles with stride considering padding overlap
         stride_y = max(1, thL - 2 * padL)
         stride_x = max(1, twL - 2 * padL)
         for by in range(0, hL, stride_y):
@@ -1810,7 +1810,6 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
 
                 tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
 
-                # Wrap tile noise to slice world-aligned noise
                 class _TileNoise:
                     def __init__(self, base_noise, y0, y1, x0, x1):
                         self.base = base_noise
@@ -1822,7 +1821,6 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
 
                 tnoise = _TileNoise(full_noise, y0, y1, x0, x1)
 
-                # Run per-tile custom advanced affine sampling
                 out_lat_tile, _ = WASAffineCustomAdvanced.sample(
                     tnoise,
                     g,
@@ -1843,7 +1841,6 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     cfg_list=cfg,
                 )
                 tile_out = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
-                # Unconditionally enforce device/dtype for safety
                 try:
                     if (tile_out.device != x_full.device) or (tile_out.dtype != x_full.dtype):
                         print(f"[WAS-UltimateCustom] Casting tile_out from {tile_out.device},{tile_out.dtype} -> {x_full.device},{x_full.dtype}")
@@ -1853,9 +1850,7 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 if not tile_out.is_contiguous():
                     tile_out = tile_out.contiguous()
 
-                # Feathering weight
-                w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)  # [1,1,HH,WW]
-                # Ensure device/dtype match
+                w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)
                 try:
                     if (w2d.device != x_full.device) or (w2d.dtype != x_full.dtype):
                         print(f"[WAS-UltimateCustom] Casting w2d from {w2d.device},{w2d.dtype} -> {x_full.device},{x_full.dtype}")
@@ -1863,7 +1858,6 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     pass
                 w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
 
-                # Final safety assertions before accumulation
                 if (out_acc.device != x_full.device) or (w_acc.device != x_full.device):
                     out_acc = out_acc.to(device=x_full.device, dtype=x_full.dtype)
                     w_acc = w_acc.to(device=x_full.device, dtype=x_full.dtype)
@@ -1878,20 +1872,16 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     w2d = w2d.to(dtype=x_full.dtype)
 
                 try:
-                    # Short debug of devices
                     print(f"[WAS-UltimateCustom] Accumulate devs: out_acc={out_acc.device}, tile_out={tile_out.device}, w2d={w2d.device}")
                 except Exception:
                     pass
                 out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
                 w_acc[:, :, y0:y1, x0:x1] += w2d
 
-        # Normalize by weights where > 0
         w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
         merged = out_acc / w_safe
-        # Fill any zero-weight holes with original latent
         merged = torch.where(w_acc > 0, merged, x_full)
 
-        # Decode merged latent -> image
         try:
             out_img = vae.decode(merged)
         except Exception as e:
@@ -1902,7 +1892,6 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
 class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUpscale):
     @classmethod
     def INPUT_TYPES(cls):
-        # Same as NoUpscale but allow optional custom_sampler/custom_sigmas
         base = super().INPUT_TYPES()
         base["optional"]["custom_sampler"] = ("SAMPLER", {"tooltip": "Optional custom SAMPLER; if provided, used instead of sampler_name."})
         base["optional"]["custom_sigmas"] = ("SIGMAS", {"tooltip": "Optional custom SIGMAS; if provided, overrides scheduler/steps/denoise."})
@@ -1949,17 +1938,14 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         custom_sampler=None,
         custom_sigmas=None,
     ):
-        # Encode image -> latent
         try:
             latent = vae.encode(image)
         except Exception as e:
             raise RuntimeError(f"VAE.encode failed: {e}")
 
-        # Build guider/sampler/sigmas (allow custom)
         try:
             g = comfy.samplers.CFGGuider(model)
             g.set_conds(positive, negative)
-            # Use first CFG value if a list is provided
             cfg_value = get_cfg_for_step(cfg, 0, steps)
             g.set_cfg(cfg_value)
             sampler_obj = custom_sampler if custom_sampler is not None else comfy.samplers.sampler_object(sampler_name)
@@ -1967,13 +1953,24 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         except Exception as e:
             raise RuntimeError(f"Failed to prepare sampler: {e}")
 
-        # Prepare latent and world-aligned noise (full canvas)
         x_full = latent["samples"] if isinstance(latent, dict) else latent
-        b, cL, hL, wL = x_full.shape
-        # Compute pixel->latent scale
+        
+        if len(x_full.shape) == 5:
+            b, cL, fL, hL, wL = x_full.shape
+            is_video = True
+        elif len(x_full.shape) == 4:
+            b, cL, hL, wL = x_full.shape
+            is_video = False
+        else:
+            raise ValueError(f"Unsupported latent shape: {x_full.shape}. Expected 4D or 5D tensor.")
+        
         try:
-            # image: [N,H,W,C]
-            _, Hpx, Wpx, _ = image.shape
+            if len(image.shape) == 5 and is_video:
+                _, _, Hpx, Wpx, _ = image.shape
+            elif len(image.shape) == 4:
+                _, Hpx, Wpx, _ = image.shape
+            else:
+                raise ValueError(f"Unsupported image shape: {image.shape}")
             scale_h = max(1.0, float(Hpx) / float(hL))
             scale_w = max(1.0, float(Wpx) / float(wL))
         except Exception:
@@ -1987,7 +1984,6 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         padL = to_lat(int(tile_padding), (scale_h + scale_w) * 0.5)
         blurL = to_lat(int(mask_blur), (scale_h + scale_w) * 0.5)
 
-        # Build full-canvas noise once
         try:
             full_noise = noise.generate_noise(latent)
             if isinstance(full_noise, torch.Tensor):
@@ -1997,11 +1993,9 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         except Exception:
             full_noise = torch.zeros_like(x_full)
 
-        # Output accumulation buffers
         out_acc = torch.zeros_like(x_full)
         w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
 
-        # Feather mask generator (tent with blur width ~ blurL within padding)
         def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
             HH = yi1 - yi0
             WW = xi1 - xi0
@@ -2015,7 +2009,6 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
             ramp = torch.clamp(d / float(max(1, blurL)), 0.0, 1.0)
             return ramp  # [HH,WW]
 
-        # Iterate tiles with stride considering padding overlap
         stride_y = max(1, thL - 2 * padL)
         stride_x = max(1, twL - 2 * padL)
         for by in range(0, hL, stride_y):
@@ -2029,7 +2022,6 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
 
                 tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
 
-                # Wrap tile noise to slice world-aligned noise
                 class _TileNoise:
                     def __init__(self, base_noise, y0, y1, x0, x1):
                         self.base = base_noise
@@ -2041,7 +2033,6 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
 
                 tnoise = _TileNoise(full_noise, y0, y1, x0, x1)
 
-                # Run per-tile custom advanced affine sampling
                 out_lat_tile, _ = WASAffineCustomAdvanced.sample(
                     tnoise,
                     g,
@@ -2063,16 +2054,13 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                 )
                 tile_out = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
                 
-                # Ensure device/dtype alignment for accumulation
                 tile_out = tile_out.to(device=x_full.device, dtype=x_full.dtype)
                 if not tile_out.is_contiguous():
                     tile_out = tile_out.contiguous()
 
-                # Feathering weight
                 w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)
                 w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
                 
-                # Ensure accumulation buffers are aligned
                 if out_acc.device != x_full.device:
                     out_acc = out_acc.to(device=x_full.device, dtype=x_full.dtype)
                 if w_acc.device != x_full.device:
@@ -2081,12 +2069,10 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                 out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
                 w_acc[:, :, y0:y1, x0:x1] += w2d
 
-        # Normalize by weights where > 0
         w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
         merged = out_acc / w_safe
         merged = torch.where(w_acc > 0, merged, x_full)
 
-        # Decode merged latent -> image
         try:
             out_img = vae.decode(merged)
         except Exception as e:
@@ -2098,7 +2084,6 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
     @classmethod
     def INPUT_TYPES(cls):
         base = super().INPUT_TYPES()
-        # Add upscale model parameters
         base["required"]["upscale_model"] = ("UPSCALE_MODEL", {"tooltip": "Upscale model to use for pre-upscaling the image before tiling."})
         base["required"]["upscale_factor"] = ("FLOAT", {"default": 2.0, "min": 1.0, "max": 8.0, "step": 0.1, "tooltip": "Target upscale factor. Image will be rescaled to this size regardless of model's native scale."})
         return base
@@ -2148,11 +2133,9 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
         
         import torch.nn.functional as F
         
-        # Handle both 4D [B,H,W,C] and 5D [B,F,H,W,C] tensors
         is_video = image.dim() == 5
         
         if is_video:
-            # Video latents: [B,F,H,W,C]
             b, f, h, w, c = image.shape
             print(f"[WAS Affine] Processing video with {f} frames at {h}x{w}")
             new_h = int(h * upscale_factor)
@@ -2162,32 +2145,29 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
                 from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel
                 upscaler = ImageUpscaleWithModel()
                 
-                # Process frame by frame
                 upscaled_frames = []
                 for frame_idx in range(f):
-                    frame = image[:, frame_idx]  # [B,H,W,C]
+                    frame = image[:, frame_idx]
                     model_upscaled_frame = upscaler.upscale(upscale_model, frame)[0]
                     
-                    # Check if we need to rescale to target factor
                     if model_upscaled_frame.shape[1] != new_h or model_upscaled_frame.shape[2] != new_w:
-                        frame_tensor = model_upscaled_frame.permute(0, 3, 1, 2)  # [B,C,H,W]
+                        frame_tensor = model_upscaled_frame.permute(0, 3, 1, 2)
                         frame_tensor = F.interpolate(
                             frame_tensor,
                             size=(new_h, new_w),
                             mode='bilinear',
                             align_corners=False
                         )
-                        model_upscaled_frame = frame_tensor.permute(0, 2, 3, 1)  # [B,H,W,C]
+                        model_upscaled_frame = frame_tensor.permute(0, 2, 3, 1)
                     
                     upscaled_frames.append(model_upscaled_frame)
                 
-                upscaled_image = torch.stack(upscaled_frames, dim=1)  # [B,F,H,W,C]
+                upscaled_image = torch.stack(upscaled_frames, dim=1)
                 
             except ImportError:
                 print(f"[WAS Affine] ImageUpscaleWithModel not available, using bilinear rescaling for video")
-                # Reshape for batch processing: [B,F,H,W,C] -> [B*F,H,W,C]
                 img_reshaped = image.view(b * f, h, w, c)
-                img_tensor = img_reshaped.permute(0, 3, 1, 2)  # [B*F,C,H,W]
+                img_tensor = img_reshaped.permute(0, 3, 1, 2)
                 
                 upscaled_tensor = F.interpolate(
                     img_tensor,
@@ -2196,14 +2176,12 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
                     align_corners=False
                 )
                 
-                # Reshape back to video format
-                upscaled_reshaped = upscaled_tensor.permute(0, 2, 3, 1)  # [B*F,H,W,C]
-                upscaled_image = upscaled_reshaped.view(b, f, new_h, new_w, c)  # [B,F,H,W,C]
+                upscaled_reshaped = upscaled_tensor.permute(0, 2, 3, 1)
+                upscaled_image = upscaled_reshaped.view(b, f, new_h, new_w, c)
             
             print(f"[WAS Affine] Video upscaled: {h}x{w} -> {new_h}x{new_w} ({upscale_factor}x, {f} frames)")
             
         else:
-            # Regular 4D image latents: [B,H,W,C]
             img_tensor = image.permute(0, 3, 1, 2)
             b, c, h, w = img_tensor.shape
             new_h = int(h * upscale_factor)
@@ -2287,9 +2265,9 @@ if _usdu_available():
         "WASUltimateCustomAdvancedAffine": WASUltimateCustomAdvancedAffine,
     })
     AFFINE_NODE_DISPLAY_NAME_MAPPINGS.update({
-        "WASUltimateCustomAdvancedAffineNoUpscale": "Ultimate Custom Advanced Affine (No Upscale)",
-        "WASUltimateCustomAdvancedAffineCustom": "Ultimate Custom Advanced Affine (Custom)",
-        "WASUltimateCustomAdvancedAffine": "Ultimate Custom Advanced Affine",
+        "WASUltimateCustomAdvancedAffineNoUpscale": "Ultimate Affine KSampler (No Upscale) - USDU",
+        "WASUltimateCustomAdvancedAffineCustom": "Ultimate Affine KSampler (Custom) - USDU",
+        "WASUltimateCustomAdvancedAffine": "Ultimate Affine KSampler - USDU",
     })
 else:
     print("[was-affine] Ultimate Custom Advanced Affine Upscalers not registered: USDU not found")

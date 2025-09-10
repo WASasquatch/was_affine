@@ -64,7 +64,7 @@ The core transformation: `z' = scale * z + bias` where the mask determines the b
 - Configure affine schedule, interval, and pattern parameters directly
 
 ### Option 3: Tiled Upscaling
-- Use **Ultimate Custom Advanced Affine** nodes for large image processing
+- Use **Ultimate Affine KSampler - USDU** nodes for large image processing
 - Combines upscaling, tiling, and affine enhancement in one step
 - Supports custom samplers and sigma schedules
 - 
@@ -133,7 +133,7 @@ Advanced custom sampling with affine integration.
 
 ### Ultimate SD Upscaler Ports
 
-#### Ultimate Custom Advanced Affine
+#### Ultimate Affine KSampler - USDU
 Full upscaling with model-based upscaling and affine enhancement.
 
 **Key Features:**
@@ -143,10 +143,10 @@ Full upscaling with model-based upscaling and affine enhancement.
 - Full affine parameter set
 - World-aligned noise for consistent tiling
 
-#### Ultimate Custom Advanced Affine (No Upscale)
+#### Ultimate Affine KSampler (No Upscale) - USDU
 Tiled processing without initial upscaling.
 
-#### Ultimate Custom Advanced Affine (Custom)
+#### Ultimate Affine KSampler (Custom) - USDU
 Supports custom samplers and sigma schedules.
 
 ### Pattern Noise Generation
