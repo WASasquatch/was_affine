@@ -1900,7 +1900,19 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         merged = torch.where(w_acc > 0, merged, x_full)
 
         try:
-            out_img = vae.decode(merged)
+            if is_video:
+                # Decode 5D latent directly: [B,C,F,H,W] -> IMAGE [B,F,H,W,C]
+                out_img = vae.decode(merged)
+                # Flatten frames into batch: [B*F,H,W,C]
+                if out_img.dim() == 5:
+                    b, f, h, w, c = out_img.shape
+                    out_img = out_img.view(b * f, h, w, c)
+            else:
+                # Expand to 5D with a single frame to satisfy VAE.decode's expectation
+                merged5 = merged.unsqueeze(2)  # [B,C,1,H,W]
+                out_img = vae.decode(merged5)  # -> [B,1,H,W,C]
+                if out_img.dim() == 5:
+                    out_img = out_img.squeeze(1)
         except Exception as e:
             raise RuntimeError(f"VAE.decode failed: {e}")
         return (out_img,)
@@ -2107,7 +2119,19 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         merged = torch.where(w_acc > 0, merged, x_full)
 
         try:
-            out_img = vae.decode(merged)
+            if is_video:
+                # For 5D video latents, decode frame by frame
+                b, c, f, h, w = merged.shape
+                decoded_frames = []
+                for frame_idx in range(f):
+                    frame_latent = merged[:, :, frame_idx:frame_idx+1, :, :]  # [B,C,1,H,W]
+                    frame_latent = frame_latent.squeeze(2)  # [B,C,H,W]
+                    decoded_frame = vae.decode({"samples": frame_latent})
+                    decoded_frames.append(decoded_frame)
+                # Stack frames back into 5D: [B, F, H, W, C]
+                out_img = torch.stack(decoded_frames, dim=1)
+            else:
+                out_img = vae.decode({"samples": merged})
         except Exception as e:
             raise RuntimeError(f"VAE.decode failed: {e}")
         return (out_img,)
