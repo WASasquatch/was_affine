@@ -1227,7 +1227,7 @@ class WASAffineCustomAdvanced:
 
         steps = max(int(sigmas.shape[-1]) - 1, 0)
         try:
-            print(f"[WASAffineCustomAdvanced] steps={steps} sigmas_len={int(sigmas.shape[-1])}")
+            print(f"[WAS Affine] steps={steps} sigmas_len={int(sigmas.shape[-1])}")
         except Exception:
             pass
         sched = affine_schedule or {}
@@ -1281,8 +1281,8 @@ class WASAffineCustomAdvanced:
         cur = x
         _global_noop_affine = (abs(float(max_scale) - 1.0) < 1e-8) and (abs(float(max_bias)) < 1e-8)
         try:
-            print(f"[WASAffineCustomAdvanced] max_scale={max_scale}, max_bias={max_bias}, _global_noop_affine={_global_noop_affine}")
-            print(f"[WASAffineCustomAdvanced] interval={interval}, pattern={pattern}")
+            print(f"[WAS Affine] max_scale={max_scale}, max_bias={max_bias}, _global_noop_affine={_global_noop_affine}")
+            print(f"[WAS Affine] interval={interval}, pattern={pattern}")
         except Exception:
             pass
         try:
@@ -1331,7 +1331,7 @@ class WASAffineCustomAdvanced:
                 except Exception as e:
                     current_guider = guider
                     try:
-                        print(f"[WASAffineCustomAdvanced] Failed to create dynamic CFGGuider: {e}")
+                        print(f"[WAS Affine] Failed to create dynamic CFGGuider: {e}")
                     except Exception:
                         pass
             
@@ -1350,7 +1350,7 @@ class WASAffineCustomAdvanced:
                     seed_i = _aff_seed + (_applications if bool(affine_seed_increment) else 0)
                     _skip = False
                     try:
-                        print(f"[WASAffineCustomAdvanced] Step {i_end+1}: t_end={t_end:.3f}, s_val={s_val:.3f}, b_val={b_val:.3f}")
+                        print(f"[WAS Affine] Step {i_end+1}: t_end={t_end:.3f}, s_val={s_val:.3f}, b_val={b_val:.3f}")
                     except Exception:
                         pass
                     try:
@@ -1364,7 +1364,7 @@ class WASAffineCustomAdvanced:
                         pass
                     if not _skip:
                         try:
-                            print(f"[WASAffineCustomAdvanced] Applying affine: pattern={pattern}, seed={seed_i}")
+                            print(f"[WAS Affine] Applying affine: pattern={pattern}, seed={seed_i}")
                         except Exception:
                             pass
                         lat2, _mask = aff.apply(
@@ -1387,12 +1387,12 @@ class WASAffineCustomAdvanced:
                             pass
                         _applications += 1
                         try:
-                            print(f"[WASAffineCustomAdvanced] Applied affine #{_applications}")
+                            print(f"[WAS Affine] Applied affine #{_applications}")
                         except Exception:
                             pass
                     else:
                         try:
-                            print(f"[WASAffineCustomAdvanced] Skipped affine: s_val={s_val:.3f}, b_val={b_val:.3f}")
+                            print(f"[WAS Affine] Skipped affine: s_val={s_val:.3f}, b_val={b_val:.3f}")
                         except Exception:
                             pass
                 else:
@@ -1782,7 +1782,10 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
             full_noise = torch.zeros_like(x_full)
 
         out_acc = torch.zeros_like(x_full)
-        w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
+        if is_video:
+            w_acc = torch.zeros((b, 1, fL, hL, wL), device=x_full.device, dtype=x_full.dtype)
+        else:
+            w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
 
         def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
             HH = yi1 - yi0
@@ -1808,18 +1811,25 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 if (y1 - y0) <= 1 or (x1 - x0) <= 1:
                     continue
 
-                tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
+                if is_video:
+                    tile_lat = {"samples": x_full[:, :, :, y0:y1, x0:x1]}
+                else:
+                    tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
 
                 class _TileNoise:
-                    def __init__(self, base_noise, y0, y1, x0, x1):
+                    def __init__(self, base_noise, y0, y1, x0, x1, is_video):
                         self.base = base_noise
                         self.seed = 0
                         self.y0, self.y1, self.x0, self.x1 = y0, y1, x0, x1
+                        self.is_video = is_video
 
                     def generate_noise(self, input_latent):
-                        return self.base[:, :, self.y0:self.y1, self.x0:self.x1]
+                        if self.is_video:
+                            return self.base[:, :, :, self.y0:self.y1, self.x0:self.x1]
+                        else:
+                            return self.base[:, :, self.y0:self.y1, self.x0:self.x1]
 
-                tnoise = _TileNoise(full_noise, y0, y1, x0, x1)
+                tnoise = _TileNoise(full_noise, y0, y1, x0, x1, is_video)
 
                 out_lat_tile, _ = WASAffineCustomAdvanced.sample(
                     tnoise,
@@ -1843,7 +1853,7 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 tile_out = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
                 try:
                     if (tile_out.device != x_full.device) or (tile_out.dtype != x_full.dtype):
-                        print(f"[WAS-UltimateCustom] Casting tile_out from {tile_out.device},{tile_out.dtype} -> {x_full.device},{x_full.dtype}")
+                        print(f"[WAS Affine] Casting tile_out from {tile_out.device},{tile_out.dtype} -> {x_full.device},{x_full.dtype}")
                 except Exception:
                     pass
                 tile_out = tile_out.to(device=x_full.device, dtype=x_full.dtype)
@@ -1851,9 +1861,11 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     tile_out = tile_out.contiguous()
 
                 w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)
+                if is_video:
+                    w2d = w2d.unsqueeze(2)  # Add frame dimension for 5D
                 try:
                     if (w2d.device != x_full.device) or (w2d.dtype != x_full.dtype):
-                        print(f"[WAS-UltimateCustom] Casting w2d from {w2d.device},{w2d.dtype} -> {x_full.device},{x_full.dtype}")
+                        print(f"[WAS Affine] Casting w2d from {w2d.device},{w2d.dtype} -> {x_full.device},{x_full.dtype}")
                 except Exception:
                     pass
                 w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
@@ -1865,18 +1877,23 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     raise RuntimeError(f"Device mismatch before accumulation: tile_out={tile_out.device}, w2d={w2d.device}, x_full={x_full.device}")
                 if (tile_out.dtype != x_full.dtype) or (w2d.dtype != x_full.dtype):
                     try:
-                        print(f"[WAS-UltimateCustom] Dtype mismatch before accumulation: tile_out={tile_out.dtype}, w2d={w2d.dtype}, x_full={x_full.dtype}")
+                        print(f"[WAS Affine] Dtype mismatch before accumulation: tile_out={tile_out.dtype}, w2d={w2d.dtype}, x_full={x_full.dtype}")
                     except Exception:
                         pass
                     tile_out = tile_out.to(dtype=x_full.dtype)
                     w2d = w2d.to(dtype=x_full.dtype)
 
                 try:
-                    print(f"[WAS-UltimateCustom] Accumulate devs: out_acc={out_acc.device}, tile_out={tile_out.device}, w2d={w2d.device}")
+                    print(f"[WAS Affine] Accumulate devs: out_acc={out_acc.device}, tile_out={tile_out.device}, w2d={w2d.device}")
                 except Exception:
                     pass
-                out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
-                w_acc[:, :, y0:y1, x0:x1] += w2d
+                
+                if is_video:
+                    out_acc[:, :, :, y0:y1, x0:x1] += tile_out * w2d
+                    w_acc[:, :, :, y0:y1, x0:x1] += w2d
+                else:
+                    out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
+                    w_acc[:, :, y0:y1, x0:x1] += w2d
 
         w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
         merged = out_acc / w_safe
@@ -1994,7 +2011,10 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
             full_noise = torch.zeros_like(x_full)
 
         out_acc = torch.zeros_like(x_full)
-        w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
+        if is_video:
+            w_acc = torch.zeros((b, 1, fL, hL, wL), device=x_full.device, dtype=x_full.dtype)
+        else:
+            w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
 
         def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
             HH = yi1 - yi0
@@ -2007,7 +2027,7 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
             right = (WW - 1) - xx.float()
             d = torch.min(torch.min(top, bottom), torch.min(left, right))
             ramp = torch.clamp(d / float(max(1, blurL)), 0.0, 1.0)
-            return ramp  # [HH,WW]
+            return ramp
 
         stride_y = max(1, thL - 2 * padL)
         stride_x = max(1, twL - 2 * padL)
@@ -2020,18 +2040,25 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                 if (y1 - y0) <= 1 or (x1 - x0) <= 1:
                     continue
 
-                tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
+                if is_video:
+                    tile_lat = {"samples": x_full[:, :, :, y0:y1, x0:x1]}
+                else:
+                    tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
 
                 class _TileNoise:
-                    def __init__(self, base_noise, y0, y1, x0, x1):
+                    def __init__(self, base_noise, y0, y1, x0, x1, is_video):
                         self.base = base_noise
                         self.seed = 0
                         self.y0, self.y1, self.x0, self.x1 = y0, y1, x0, x1
+                        self.is_video = is_video
 
                     def generate_noise(self, input_latent):
-                        return self.base[:, :, self.y0:self.y1, self.x0:self.x1]
+                        if self.is_video:
+                            return self.base[:, :, :, self.y0:self.y1, self.x0:self.x1]
+                        else:
+                            return self.base[:, :, self.y0:self.y1, self.x0:self.x1]
 
-                tnoise = _TileNoise(full_noise, y0, y1, x0, x1)
+                tnoise = _TileNoise(full_noise, y0, y1, x0, x1, is_video)
 
                 out_lat_tile, _ = WASAffineCustomAdvanced.sample(
                     tnoise,
@@ -2059,15 +2086,21 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                     tile_out = tile_out.contiguous()
 
                 w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)
+                if is_video:
+                    w2d = w2d.unsqueeze(2)  # Add frame dimension for 5D
                 w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
                 
                 if out_acc.device != x_full.device:
                     out_acc = out_acc.to(device=x_full.device, dtype=x_full.dtype)
                 if w_acc.device != x_full.device:
                     w_acc = w_acc.to(device=x_full.device, dtype=x_full.dtype)
-                
-                out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
-                w_acc[:, :, y0:y1, x0:x1] += w2d
+
+                if is_video:
+                    out_acc[:, :, :, y0:y1, x0:x1] += tile_out * w2d
+                    w_acc[:, :, :, y0:y1, x0:x1] += w2d
+                else:
+                    out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
+                    w_acc[:, :, y0:y1, x0:x1] += w2d
 
         w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
         merged = out_acc / w_safe
