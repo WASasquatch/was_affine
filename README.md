@@ -15,7 +15,7 @@ The suite includes:
 
 ### Example
 Here we use some aggressive settings to give a neutral cinematic look without hard contrast.
-- [Affine WAN Example](https://streamable.com/wyc2le)
+- [Affine WAN Example](https://youtu.be/2IgdGCjVCcg)
 - [Affine USDU 720p -> 2k Example](https://www.youtube.com/watch?v=-VsFb6-6xog) (Nevermind the base generation, was playing with I2T2V experiment. <.<)
 
 **Things to take note of:**
