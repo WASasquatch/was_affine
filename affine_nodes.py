@@ -685,6 +685,8 @@ class WASAffineKSamplerAdvanced:
                 "end_at_step": ("INT", {"default": 10000, "min": 0, "max": 10000, "step": 1, "tooltip": "End step index (exclusive) within the sampler."}),
                 "return_with_leftover_noise": ("BOOLEAN", {"default": False, "tooltip": "If true, force last step to full denoise behavior."}),
                 "merge_inactive_steps": ("BOOLEAN", {"default": True, "tooltip": "Greedily merge steps outside the active schedule window into larger batches."}),
+                "affine_accumulate_device": (["auto", "cuda", "cpu"], {"default": "auto", "tooltip": "Device to use for the affine math inside this node only. 'auto' = follow latent/model device; 'cuda' = use CUDA if available; 'cpu' = force CPU."}),
+                "affine_accumulate_device_index": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1, "tooltip": "CUDA device index when affine_accumulate_device='cuda'."}),
             },
         }
 
@@ -719,6 +721,8 @@ class WASAffineKSamplerAdvanced:
         temporal_mode="static",
         segment_mode="late_only",
         late_only_percent=0.2,
+        affine_accumulate_device="auto",
+        affine_accumulate_device_index=0,
     ):
         import inspect as _inspect
         import torch as _torch
@@ -736,6 +740,26 @@ class WASAffineKSamplerAdvanced:
         cur = latent_image["samples"]
         if not isinstance(cur, _torch.Tensor) or cur.dim() not in (4, 5):
             raise ValueError("LATENT['samples'] must be 4D [B,C,H,W] or 5D [B,C,F,H,W]")
+
+        target_device = cur.device
+        acc_pref = str(affine_accumulate_device)
+        acc_index = int(affine_accumulate_device_index)
+        acc_device = target_device
+        try:
+            if acc_pref == "cpu":
+                acc_device = _torch.device("cpu")
+            elif acc_pref == "cuda":
+                if _torch.cuda.is_available():
+                    acc_index = max(0, min(acc_index, _torch.cuda.device_count() - 1))
+                    acc_device = _torch.device(f"cuda:{acc_index}")
+                else:
+                    acc_device = target_device
+        except Exception:
+            acc_device = target_device
+        try:
+            print(f"[WASAffineKSamplerAdvanced] target_device={target_device}, accumulate_device={acc_device}")
+        except Exception:
+            pass
 
         sched = affine_schedule or {}
         start = float(sched.get("start", 0.2))
@@ -967,11 +991,20 @@ class WASAffineKSamplerAdvanced:
                     s_val = 1.0 + (float(max_scale) - 1.0) * t_boundary
                     b_val = float(max_bias) * t_boundary
                     lat = {"samples": cur}
+                    # Optionally move to accumulation device for affine math
+                    work_lat = lat
+                    moved = False
+                    if acc_device != cur.device:
+                        try:
+                            work_lat = {"samples": cur.to(device=acc_device, dtype=cur.dtype)}
+                            moved = True
+                        except Exception:
+                            work_lat = lat
                     seed_i = int(affine_seed) + (affine_applications if affine_seed_increment else 0)
                     
                     print(f"[WASAffineKSamplerAdvanced] Applying Affine at step {i} scale={s_val} bias={b_val} seed={seed_i} pattern={pattern} noise={noise_options}")
                     lat2, _mask = aff.apply(
-                        lat,
+                        work_lat,
                         s_val,
                         b_val,
                         pattern,
@@ -981,7 +1014,12 @@ class WASAffineKSamplerAdvanced:
                         noise_options=noise_options,
                         options=options,
                     )
-                    cur = lat2["samples"]
+                    cur2 = lat2["samples"]
+                    if moved and isinstance(cur2, _torch.Tensor) and (cur2.device != target_device):
+                        cur2 = cur2.to(device=target_device, dtype=cur.dtype)
+                    cur = cur2
+                    if isinstance(_mask, _torch.Tensor) and (_mask.device != target_device):
+                        _mask = _mask.to(device=target_device, dtype=cur.dtype)
                     affine_applications += 1
                     _applied_affine = True
                     mask_img = _mask
@@ -1093,6 +1131,8 @@ class WASAffineKSampler:
                 "options": ("DICT", {"tooltip": "Base options DICT for affine (e.g., common or full options)."}),
                 "noise_options": ("DICT", {"tooltip": "Pattern-specific overrides that layer onto 'options'."}),
                 "merge_inactive_steps": ("BOOLEAN", {"default": True, "tooltip": "Greedily merge steps outside the active schedule window into larger batches."}),
+                "affine_accumulate_device": (["auto", "cuda", "cpu"], {"default": "auto", "tooltip": "Device to use for the affine math inside this node only. 'auto' = follow latent/model device; 'cuda' = use CUDA if available; 'cpu' = force CPU."}),
+                "affine_accumulate_device_index": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1, "tooltip": "CUDA device index when affine_accumulate_device='cuda'."}),
             },
         }
 
@@ -1120,6 +1160,8 @@ class WASAffineKSampler:
         options=None,
         noise_options=None,
         merge_inactive_steps=True,
+        affine_accumulate_device="auto",
+        affine_accumulate_device_index=0,
     ):
         return WASAffineKSamplerAdvanced.sample(
             model=model,
@@ -1147,6 +1189,8 @@ class WASAffineKSampler:
             end_at_step=10000,
             return_with_leftover_noise=False,
             merge_inactive_steps=merge_inactive_steps,
+            affine_accumulate_device=affine_accumulate_device,
+            affine_accumulate_device_index=affine_accumulate_device_index,
         )
 
 
@@ -1279,6 +1323,27 @@ class WASAffineCustomAdvanced:
         
 
         cur = x
+        # Resolve accumulation device relative to current latent device
+        target_device = cur.device
+        _opts_local = options if isinstance(options, dict) else {}
+        acc_pref = str(_opts_local.get("affine_accumulate_device", "auto"))
+        acc_index = int(_opts_local.get("affine_accumulate_device_index", 0))
+        acc_device = target_device
+        try:
+            if acc_pref == "cpu":
+                acc_device = _torch.device("cpu")
+            elif acc_pref == "cuda":
+                if _torch.cuda.is_available():
+                    acc_index = max(0, min(acc_index, _torch.cuda.device_count() - 1))
+                    acc_device = _torch.device(f"cuda:{acc_index}")
+                else:
+                    acc_device = target_device
+        except Exception:
+            acc_device = target_device
+        try:
+            print(f"[WASAffineKSamplerAdvanced] target_device={target_device}, accumulate_device={acc_device}")
+        except Exception:
+            pass
         _global_noop_affine = (abs(float(max_scale) - 1.0) < 1e-8) and (abs(float(max_bias)) < 1e-8)
         try:
             print(f"[WAS Affine] max_scale={max_scale}, max_bias={max_bias}, _global_noop_affine={_global_noop_affine}")
@@ -1542,85 +1607,8 @@ class WASAffinePatternNoise:
         n = _WASPatternNoise(pattern, seed, affine_scale, normalize, affine_bias, opts)
         return (n,)
 
-AFFINE_NODE_CLASS_MAPPINGS = {
-    "WASLatentAffine": WASLatentAffine,
-    "WASLatentAffineSimple": WASLatentAffineSimple,
-    "WASAffineKSamplerAdvanced": WASAffineKSamplerAdvanced,
-    "WASAffineKSampler": WASAffineKSampler,
-    "WASAffineCustomAdvanced": WASAffineCustomAdvanced,
-    "WASAffinePatternNoise": WASAffinePatternNoise,
-}
 
-AFFINE_NODE_DISPLAY_NAME_MAPPINGS = {
-    "WASLatentAffine": "Latent Affine",
-    "WASLatentAffineSimple": "Latent Affine Simple",
-    "WASAffineKSamplerAdvanced": "KSampler Affine Advanced",
-    "WASAffineKSampler": "KSampler Affine",
-    "WASAffineCustomAdvanced": "Custom Sampler Affine Advanced",
-    "WASAffinePatternNoise": "Affine Pattern Noise",
-}
-
-# -----------------------
-# Ultimate SD Upscaler Affine Ports
-# -----------------------
-
-def _usdu_available() -> bool:
-    """
-    Dirty check for Ultimate SD Upscaler.
-    """
-    try:
-        try:
-            from folder_paths import folder_names_and_paths
-            from nodes import NODES_CLASS_MAPPINGS as _NODES
-            import os
-            
-            usdu_nodes = ["UltimateSDUpscale", "UltimateSDUpscaleNoUpscale", "UltimateSDUpscaleCustom"]
-            if any(node in _NODES for node in usdu_nodes):
-                return True
-            
-            if "custom_nodes" in folder_names_and_paths:
-                custom_nodes_data = folder_names_and_paths["custom_nodes"]
-                if isinstance(custom_nodes_data, (list, tuple)) and len(custom_nodes_data) > 0:
-                    custom_nodes_dirs = custom_nodes_data[0]
-                    if not isinstance(custom_nodes_dirs, list):
-                        custom_nodes_dirs = [custom_nodes_dirs]
-                    usdu_folder_names = [
-                        "ComfyUI_UltimateSDUpscale", 
-                        "ComfyUI-UltimateSDUpscale", 
-                        "comfyui-ultimatesdupscale",
-                        "UltimateSDUpscale"
-                    ]
-                    
-                    for custom_nodes_dir in custom_nodes_dirs:
-                        if os.path.exists(custom_nodes_dir):
-                            try:
-                                for item in os.listdir(custom_nodes_dir):
-                                    if item in usdu_folder_names:
-                                        item_path = os.path.join(custom_nodes_dir, item)
-                                        if os.path.isdir(item_path):
-                                            return True
-                            except (OSError, PermissionError):
-                                continue
-        except Exception:
-            pass
-        return True
-    except Exception:
-        return False
-
-
-def _build_sigmas_from_model(model, scheduler, steps: int, denoise: float):
-    import torch as _torch
-    total_steps = steps
-    if denoise < 1.0:
-        if denoise <= 0.0:
-            return _torch.FloatTensor([])
-        total_steps = int(steps / denoise)
-    sigmas = comfy.samplers.calculate_sigmas(model.get_model_object("model_sampling"), scheduler, total_steps).cpu()
-    sigmas = sigmas[-(steps + 1):]
-    return sigmas
-
-
-_SEAM_FIX_CHOICES = ["None", "Band Pass", "Half Tile", "Half Tile + Intersections"]
+# USDU Nodes
 
 
 class WASUltimateCustomAdvancedAffineNoUpscale:
@@ -1658,8 +1646,6 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 # Misc
                 "force_uniform_tiles": ("BOOLEAN", {"default": True, "tooltip": "Force uniform tiles across the grid."}),
                 "tiled_decode": ("BOOLEAN", {"default": False, "tooltip": "Decode in tiles (placeholder)."}),
-                # Custom sampling inputs
-                "noise": ("NOISE", {"tooltip": "World-aligned noise generator for step 0; zeros for subsequent steps."}),
                 # Affine controls
                 "affine_interval": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1, "tooltip": "Apply affine every N steps (1 = every step)."}),
                 "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Scale at schedule peak: 1 + (max_scale-1)*t."}),
@@ -1667,13 +1653,18 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 "pattern": (PATTERN_CHOICES_LIST, {"default": "white_noise", "tooltip": "Affine mask pattern."}),
                 "affine_seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for affine mask generation."}),
                 "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "Increment affine seed after each application (temporal)."}),
-                "affine_schedule": ("DICT", {"tooltip": "WASAffineScheduleOptions dict."}),
             },
             "optional": {
                 "external_mask": ("IMAGE", {"tooltip": "Optional external mask to gate affine."}),
                 "options": ("DICT", {"tooltip": "Base options for Affine (common/full options)."}),
                 "noise_options": ("DICT", {"tooltip": "Pattern-specific overrides layered onto 'options'."}),
+                # Custom sampling inputs (now optional)
+                "noise": ("NOISE", {"tooltip": "Optional noise source. If not provided, generates RandomNoise-like noise using the provided seed."}),
+                # Affine schedule (now optional)
+                "affine_schedule": ("DICT", {"tooltip": "Optional schedule. If omitted, defaults to start=0.0, end=1.0, bias=0.5."}),
                 "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "Temporal behavior of the affine mask."}),
+                "affine_accumulate_device": (["auto", "cuda", "cpu"], {"default": "auto", "tooltip": "Device to use for tile accumulation only (does not change model/sampler device). 'auto' = follow model/latent device; 'cuda' = use CUDA if available; 'cpu' = force CPU."}),
+                "affine_accumulate_device_index": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1, "tooltip": "CUDA device index when affine_accumulate_device='cuda'."}),
             },
         }
 
@@ -1715,6 +1706,8 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         options=None,
         noise_options=None,
         temporal_mode="static",
+        affine_accumulate_device="auto",
+        affine_accumulate_device_index=0,
     ):
         try:
             latent = vae.encode(image)
@@ -1732,6 +1725,47 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
             raise RuntimeError(f"Failed to prepare sampler: {e}")
 
         x_full = latent["samples"] if isinstance(latent, dict) else latent
+        # Resolve target and accumulation devices
+        target_device = x_full.device
+        acc_pref = str(affine_accumulate_device)
+        acc_index = int(affine_accumulate_device_index)
+        acc_device = target_device
+        try:
+            if acc_pref == "cpu":
+                acc_device = torch.device("cpu")
+            elif acc_pref == "cuda":
+                if torch.cuda.is_available():
+                    acc_index = max(0, min(acc_index, torch.cuda.device_count() - 1))
+                    acc_device = torch.device(f"cuda:{acc_index}")
+                else:
+                    acc_device = target_device
+        except Exception:
+            acc_device = target_device
+        try:
+            print(f"[WAS Affine] target_device={target_device}, accumulate_device={acc_device}")
+        except Exception:
+            pass
+        # In the custom variant, we may not have a model_patcher here; follow latent device as target
+        target_device = x_full.device
+        # Resolve accumulation device
+        acc_pref = str(affine_accumulate_device)
+        acc_index = int(affine_accumulate_device_index)
+        acc_device = target_device
+        try:
+            if acc_pref == "cpu":
+                acc_device = torch.device("cpu")
+            elif acc_pref == "cuda":
+                if torch.cuda.is_available():
+                    acc_index = max(0, min(acc_index, torch.cuda.device_count() - 1))
+                    acc_device = torch.device(f"cuda:{acc_index}")
+                else:
+                    acc_device = target_device
+        except Exception:
+            acc_device = target_device
+        try:
+            print(f"[WAS Affine] target_device={target_device}, accumulate_device={acc_device}")
+        except Exception:
+            pass
         try:
             mp = getattr(g, 'model_patcher', None)
             target_device = getattr(mp, 'device', x_full.device) if mp is not None else x_full.device
@@ -1742,6 +1776,26 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
             if isinstance(latent, dict):
                 latent = dict(latent)
                 latent["samples"] = x_full
+        # Resolve accumulation device independently of target (model) device
+        acc_pref = str(affine_accumulate_device)
+        acc_index = int(affine_accumulate_device_index)
+        acc_device = target_device
+        try:
+            if acc_pref == "cpu":
+                acc_device = torch.device("cpu")
+            elif acc_pref == "cuda":
+                if torch.cuda.is_available():
+                    acc_index = max(0, min(acc_index, torch.cuda.device_count() - 1))
+                    acc_device = torch.device(f"cuda:{acc_index}")
+                else:
+                    acc_device = target_device
+            # else: auto -> target_device
+        except Exception:
+            acc_device = target_device
+        try:
+            print(f"[WAS Affine] target_device={target_device}, accumulate_device={acc_device}")
+        except Exception:
+            pass
         
         if len(x_full.shape) == 5:
             b, cL, fL, hL, wL = x_full.shape
@@ -1772,6 +1826,17 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         padL = to_lat(int(tile_padding), (scale_h + scale_w) * 0.5)
         blurL = to_lat(int(mask_blur), (scale_h + scale_w) * 0.5)
 
+        # Build or synthesize base noise for step 0
+        if noise is None:
+            class _DefaultNoise:
+                def __init__(self, seed):
+                    self.seed = int(seed)
+                def generate_noise(self, input_latent):
+                    lat = input_latent if isinstance(input_latent, dict) else {"samples": input_latent}
+                    x = lat["samples"]
+                    batch_inds = lat.get("batch_index", None)
+                    return comfy_sample_mod.prepare_noise(x, self.seed, batch_inds)
+            noise = _DefaultNoise(seed)
         try:
             full_noise = noise.generate_noise(latent)
             if isinstance(full_noise, torch.Tensor):
@@ -1781,17 +1846,18 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         except Exception:
             full_noise = torch.zeros_like(x_full)
 
-        out_acc = torch.zeros_like(x_full)
+        # Allocate accumulators on accumulation device
+        out_acc = torch.zeros_like(x_full).to(device=acc_device)
         if is_video:
-            w_acc = torch.zeros((b, 1, fL, hL, wL), device=x_full.device, dtype=x_full.dtype)
+            w_acc = torch.zeros((b, 1, fL, hL, wL), device=acc_device, dtype=x_full.dtype)
         else:
-            w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
+            w_acc = torch.zeros((b, 1, hL, wL), device=acc_device, dtype=x_full.dtype)
 
         def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
             HH = yi1 - yi0
             WW = xi1 - xi0
-            yy = torch.arange(HH, device=x_full.device, dtype=x_full.dtype).view(HH, 1)
-            xx = torch.arange(WW, device=x_full.device, dtype=x_full.dtype).view(1, WW)
+            yy = torch.arange(HH, device=acc_device, dtype=x_full.dtype).view(HH, 1)
+            xx = torch.arange(WW, device=acc_device, dtype=x_full.dtype).view(1, WW)
             top = yy.float()
             left = xx.float()
             bottom = (HH - 1) - yy.float()
@@ -1802,8 +1868,12 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
 
         stride_y = max(1, thL - 2 * padL)
         stride_x = max(1, twL - 2 * padL)
+        row_idx = 0
         for by in range(0, hL, stride_y):
-            for bx in range(0, wL, stride_x):
+            x_iter = list(range(0, wL, stride_x))
+            if str(mode_type).lower() == "chess" and (row_idx % 2 == 1):
+                x_iter = list(reversed(x_iter))
+            for bx in x_iter:
                 y0 = max(0, by - padL)
                 x0 = max(0, bx - padL)
                 y1 = min(hL, by + thL + padL)
@@ -1831,6 +1901,9 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
 
                 tnoise = _TileNoise(full_noise, y0, y1, x0, x1, is_video)
 
+                # Default affine schedule if not provided
+                _aff_sched = affine_schedule if isinstance(affine_schedule, dict) else {"start": 0.0, "end": 1.0, "bias": 0.5}
+
                 out_lat_tile, _ = WASAffineCustomAdvanced.sample(
                     tnoise,
                     g,
@@ -1843,7 +1916,7 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     pattern,
                     affine_seed,
                     affine_seed_increment,
-                    affine_schedule,
+                    _aff_sched,
                     external_mask=external_mask,
                     options=options,
                     noise_options=noise_options,
@@ -1851,12 +1924,13 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     cfg_list=cfg,
                 )
                 tile_out = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
+                # Move tile output to accumulation device/dtype
                 try:
-                    if (tile_out.device != x_full.device) or (tile_out.dtype != x_full.dtype):
-                        print(f"[WAS Affine] Casting tile_out from {tile_out.device},{tile_out.dtype} -> {x_full.device},{x_full.dtype}")
+                    if (tile_out.device != acc_device) or (tile_out.dtype != x_full.dtype):
+                        print(f"[WAS Affine] Casting tile_out from {tile_out.device},{tile_out.dtype} -> {acc_device},{x_full.dtype}")
                 except Exception:
                     pass
-                tile_out = tile_out.to(device=x_full.device, dtype=x_full.dtype)
+                tile_out = tile_out.to(device=acc_device, dtype=x_full.dtype)
                 if not tile_out.is_contiguous():
                     tile_out = tile_out.contiguous()
 
@@ -1864,20 +1938,19 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 if is_video:
                     w2d = w2d.unsqueeze(2)  # Add frame dimension for 5D
                 try:
-                    if (w2d.device != x_full.device) or (w2d.dtype != x_full.dtype):
-                        print(f"[WAS Affine] Casting w2d from {w2d.device},{w2d.dtype} -> {x_full.device},{x_full.dtype}")
+                    if (w2d.device != acc_device) or (w2d.dtype != x_full.dtype):
+                        print(f"[WAS Affine] Casting w2d from {w2d.device},{w2d.dtype} -> {acc_device},{x_full.dtype}")
                 except Exception:
                     pass
-                w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
+                w2d = w2d.to(device=acc_device, dtype=x_full.dtype)
 
-                if (out_acc.device != x_full.device) or (w_acc.device != x_full.device):
-                    out_acc = out_acc.to(device=x_full.device, dtype=x_full.dtype)
-                    w_acc = w_acc.to(device=x_full.device, dtype=x_full.dtype)
-                if (tile_out.device != x_full.device) or (w2d.device != x_full.device):
-                    raise RuntimeError(f"Device mismatch before accumulation: tile_out={tile_out.device}, w2d={w2d.device}, x_full={x_full.device}")
+                # Ensure accumulators are on accumulation device
+                if (out_acc.device != acc_device) or (w_acc.device != acc_device):
+                    out_acc = out_acc.to(device=acc_device, dtype=x_full.dtype)
+                    w_acc = w_acc.to(device=acc_device, dtype=x_full.dtype)
                 if (tile_out.dtype != x_full.dtype) or (w2d.dtype != x_full.dtype):
                     try:
-                        print(f"[WAS Affine] Dtype mismatch before accumulation: tile_out={tile_out.dtype}, w2d={w2d.dtype}, x_full={x_full.dtype}")
+                        print(f"[WAS Affine] Dtype mismatch before accumulation: tile_out={tile_out.dtype}, w2d={w2d.dtype}, acc_dtype={x_full.dtype}")
                     except Exception:
                         pass
                     tile_out = tile_out.to(dtype=x_full.dtype)
@@ -1897,22 +1970,25 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
 
         w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
         merged = out_acc / w_safe
-        merged = torch.where(w_acc > 0, merged, x_full)
+        merged = torch.where(w_acc > 0, merged, x_full.to(device=acc_device))
+        # Move merged result back to target device for decoding
+        if merged.device != target_device:
+            merged = merged.to(device=target_device, dtype=x_full.dtype)
 
         try:
             if is_video:
-                # Decode 5D latent directly: [B,C,F,H,W] -> IMAGE [B,F,H,W,C]
-                out_img = vae.decode(merged)
-                # Flatten frames into batch: [B*F,H,W,C]
-                if out_img.dim() == 5:
-                    b, f, h, w, c = out_img.shape
-                    out_img = out_img.view(b * f, h, w, c)
+                # Decode frame-by-frame to avoid passing 5D to VAEs that expect 4D latents
+                b, c, f, h, w = merged.shape
+                decoded_frames = []
+                for frame_idx in range(f):
+                    frame_latent = merged[:, :, frame_idx, :, :]  # [B,C,H,W]
+                    decoded_frame = vae.decode(frame_latent)
+                    decoded_frames.append(decoded_frame)
+                # Stack frames back into 5D: [B, F, H, W, C]
+                out_img = torch.stack(decoded_frames, dim=1)
             else:
-                # Expand to 5D with a single frame to satisfy VAE.decode's expectation
-                merged5 = merged.unsqueeze(2)  # [B,C,1,H,W]
-                out_img = vae.decode(merged5)  # -> [B,1,H,W,C]
-                if out_img.dim() == 5:
-                    out_img = out_img.squeeze(1)
+                # Decode 4D latent directly (tensor, not dict)
+                out_img = vae.decode(merged)
         except Exception as e:
             raise RuntimeError(f"VAE.decode failed: {e}")
         return (out_img,)
@@ -1966,6 +2042,8 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         temporal_mode="static",
         custom_sampler=None,
         custom_sigmas=None,
+        affine_accumulate_device="auto",
+        affine_accumulate_device_index=0,
     ):
         try:
             latent = vae.encode(image)
@@ -2022,17 +2100,17 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         except Exception:
             full_noise = torch.zeros_like(x_full)
 
-        out_acc = torch.zeros_like(x_full)
+        out_acc = torch.zeros_like(x_full).to(device=acc_device)
         if is_video:
-            w_acc = torch.zeros((b, 1, fL, hL, wL), device=x_full.device, dtype=x_full.dtype)
+            w_acc = torch.zeros((b, 1, fL, hL, wL), device=acc_device, dtype=x_full.dtype)
         else:
-            w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
+            w_acc = torch.zeros((b, 1, hL, wL), device=acc_device, dtype=x_full.dtype)
 
         def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
             HH = yi1 - yi0
             WW = xi1 - xi0
-            yy = torch.arange(HH, device=x_full.device, dtype=x_full.dtype).view(HH, 1)
-            xx = torch.arange(WW, device=x_full.device, dtype=x_full.dtype).view(1, WW)
+            yy = torch.arange(HH, device=acc_device, dtype=x_full.dtype).view(HH, 1)
+            xx = torch.arange(WW, device=acc_device, dtype=x_full.dtype).view(1, WW)
             top = yy.float()
             left = xx.float()
             bottom = (HH - 1) - yy.float()
@@ -2072,6 +2150,8 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
 
                 tnoise = _TileNoise(full_noise, y0, y1, x0, x1, is_video)
 
+                _aff_sched = affine_schedule if isinstance(affine_schedule, dict) else {"start": 0.0, "end": 1.0, "bias": 0.5}
+
                 out_lat_tile, _ = WASAffineCustomAdvanced.sample(
                     tnoise,
                     g,
@@ -2084,7 +2164,7 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                     pattern,
                     affine_seed,
                     affine_seed_increment,
-                    affine_schedule,
+                    _aff_sched,
                     external_mask=external_mask,
                     options=options,
                     noise_options=noise_options,
@@ -2092,20 +2172,19 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                     cfg_list=cfg,
                 )
                 tile_out = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
-                
-                tile_out = tile_out.to(device=x_full.device, dtype=x_full.dtype)
+                tile_out = tile_out.to(device=acc_device, dtype=x_full.dtype)
                 if not tile_out.is_contiguous():
                     tile_out = tile_out.contiguous()
 
                 w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)
                 if is_video:
                     w2d = w2d.unsqueeze(2)  # Add frame dimension for 5D
-                w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
-                
-                if out_acc.device != x_full.device:
-                    out_acc = out_acc.to(device=x_full.device, dtype=x_full.dtype)
-                if w_acc.device != x_full.device:
-                    w_acc = w_acc.to(device=x_full.device, dtype=x_full.dtype)
+                w2d = w2d.to(device=acc_device, dtype=x_full.dtype)
+                # Ensure accumulators are on accumulation device
+                if out_acc.device != acc_device:
+                    out_acc = out_acc.to(device=acc_device, dtype=x_full.dtype)
+                if w_acc.device != acc_device:
+                    w_acc = w_acc.to(device=acc_device, dtype=x_full.dtype)
 
                 if is_video:
                     out_acc[:, :, :, y0:y1, x0:x1] += tile_out * w2d
@@ -2116,22 +2195,21 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
 
         w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
         merged = out_acc / w_safe
-        merged = torch.where(w_acc > 0, merged, x_full)
+        merged = torch.where(w_acc > 0, merged, x_full.to(device=acc_device))
+        if merged.device != target_device:
+            merged = merged.to(device=target_device, dtype=x_full.dtype)
 
         try:
             if is_video:
-                # For 5D video latents, decode frame by frame
                 b, c, f, h, w = merged.shape
                 decoded_frames = []
                 for frame_idx in range(f):
-                    frame_latent = merged[:, :, frame_idx:frame_idx+1, :, :]  # [B,C,1,H,W]
-                    frame_latent = frame_latent.squeeze(2)  # [B,C,H,W]
-                    decoded_frame = vae.decode({"samples": frame_latent})
+                    frame_latent = merged[:, :, frame_idx, :, :]
+                    decoded_frame = vae.decode(frame_latent)
                     decoded_frames.append(decoded_frame)
-                # Stack frames back into 5D: [B, F, H, W, C]
                 out_img = torch.stack(decoded_frames, dim=1)
             else:
-                out_img = vae.decode({"samples": merged})
+                out_img = vae.decode(merged)
         except Exception as e:
             raise RuntimeError(f"VAE.decode failed: {e}")
         return (out_img,)
@@ -2185,6 +2263,8 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
         options=None,
         noise_options=None,
         temporal_mode="static",
+        affine_accumulate_device="auto",
+        affine_accumulate_device_index=0,
     ):
         print(f"[WAS Affine] Upscaling image to {upscale_factor}x...")
         
@@ -2311,20 +2391,31 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
             options=options,
             noise_options=noise_options,
             temporal_mode=temporal_mode,
+            affine_accumulate_device=affine_accumulate_device,
+            affine_accumulate_device_index=affine_accumulate_device_index,
         )
 
 
-if _usdu_available():
-    print("[was-affine] Ultimate Custom Advanced Affine Upscalers loaded.")
-    AFFINE_NODE_CLASS_MAPPINGS.update({
-        "WASUltimateCustomAdvancedAffineNoUpscale": WASUltimateCustomAdvancedAffineNoUpscale,
-        "WASUltimateCustomAdvancedAffineCustom": WASUltimateCustomAdvancedAffineCustom,
-        "WASUltimateCustomAdvancedAffine": WASUltimateCustomAdvancedAffine,
-    })
-    AFFINE_NODE_DISPLAY_NAME_MAPPINGS.update({
-        "WASUltimateCustomAdvancedAffineNoUpscale": "Ultimate Affine KSampler (No Upscale) - USDU",
-        "WASUltimateCustomAdvancedAffineCustom": "Ultimate Affine KSampler (Custom) - USDU",
-        "WASUltimateCustomAdvancedAffine": "Ultimate Affine KSampler - USDU",
-    })
-else:
-    print("[was-affine] Ultimate Custom Advanced Affine Upscalers not registered: USDU not found")
+AFFINE_NODE_CLASS_MAPPINGS = {
+    "WASLatentAffine": WASLatentAffine,
+    "WASLatentAffineSimple": WASLatentAffineSimple,
+    "WASAffineKSamplerAdvanced": WASAffineKSamplerAdvanced,
+    "WASAffineKSampler": WASAffineKSampler,
+    "WASAffineCustomAdvanced": WASAffineCustomAdvanced,
+    "WASAffinePatternNoise": WASAffinePatternNoise,
+    "WASUltimateCustomAdvancedAffineNoUpscale": WASUltimateCustomAdvancedAffineNoUpscale,
+    "WASUltimateCustomAdvancedAffineCustom": WASUltimateCustomAdvancedAffineCustom,
+    "WASUltimateCustomAdvancedAffine": WASUltimateCustomAdvancedAffine,
+}
+
+AFFINE_NODE_DISPLAY_NAME_MAPPINGS = {
+    "WASLatentAffine": "Latent Affine",
+    "WASLatentAffineSimple": "Latent Affine Simple",
+    "WASAffineKSamplerAdvanced": "KSampler Affine Advanced",
+    "WASAffineKSampler": "KSampler Affine",
+    "WASAffineCustomAdvanced": "Custom Sampler Affine Advanced",
+    "WASAffinePatternNoise": "Affine Pattern Noise",
+    "WASUltimateCustomAdvancedAffineNoUpscale": "Ultimate Affine KSampler (No Upscale) - USDU",
+    "WASUltimateCustomAdvancedAffineCustom": "Ultimate Affine KSampler (Custom) - USDU",
+    "WASUltimateCustomAdvancedAffine": "Ultimate Affine KSampler - USDU",
+}

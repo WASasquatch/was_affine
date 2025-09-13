@@ -13,10 +13,13 @@ The suite includes:
 - **Pattern Noise Generation** - AFFINE augmented random noise for custom sampling
 - **Modular Options System** - Granular control over all parameters (also a super options node for the adventurous)
 
-### Example
-Here we use some aggressive settings to give a neutral cinematic look without hard contrast.
-- [Affine WAN Example](https://youtu.be/2IgdGCjVCcg)
-- [Affine USDU 720p -> 2k Example](https://www.youtube.com/watch?v=-VsFb6-6xog) (Nevermind the base generation, was playing with I2T2V experiment. <.<)
+### Examples
+
+#### [▶︎] WAN Example
+[![WAN Lightning Example](https://img.youtube.com/vi/2IgdGCjVCcg/0.jpg)](https://www.youtube.com/watch?v=2IgdGCjVCcg)
+
+#### [▶︎] 720p -> 2k Example
+[![720p -> 2k Example](https://img.youtube.com/vi/94GXp6fV9QI/0.jpg)](https://www.youtube.com/watch?v=94GXp6fV9QI)
 
 **Things to take note of:**
 - The background rock quality is improved.
