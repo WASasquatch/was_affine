@@ -2,7 +2,7 @@
   "id": "33f9a4a2-ff08-4660-8858-a52b22815bdc",
   "revision": 0,
   "last_node_id": 26,
-  "last_link_id": 25,
+  "last_link_id": 27,
   "nodes": [
     {
       "id": 2,
@@ -111,20 +111,20 @@
         410
       ],
       "flags": {},
-      "order": 2,
+      "order": 16,
       "mode": 0,
       "inputs": [
         {
           "name": "options",
           "shape": 7,
           "type": "DICT",
-          "link": null
+          "link": 26
         },
         {
           "name": "noise_options",
           "shape": 7,
           "type": "DICT",
-          "link": null
+          "link": 27
         }
       ],
       "outputs": [
@@ -173,7 +173,7 @@
         82
       ],
       "flags": {},
-      "order": 3,
+      "order": 2,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -221,7 +221,7 @@
         82
       ],
       "flags": {},
-      "order": 4,
+      "order": 3,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -271,7 +271,7 @@
         106
       ],
       "flags": {},
-      "order": 5,
+      "order": 4,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -325,7 +325,7 @@
         142
       ],
       "flags": {},
-      "order": 15,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -439,7 +439,7 @@
         88
       ],
       "flags": {},
-      "order": 14,
+      "order": 13,
       "mode": 0,
       "inputs": [
         {
@@ -491,7 +491,7 @@
         110
       ],
       "flags": {},
-      "order": 13,
+      "order": 12,
       "mode": 0,
       "inputs": [
         {
@@ -543,7 +543,7 @@
         82
       ],
       "flags": {},
-      "order": 6,
+      "order": 5,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -574,6 +574,425 @@
       ]
     },
     {
+      "id": 13,
+      "type": "WASAffineScheduleOptions",
+      "pos": [
+        10897.4736328125,
+        1514.9053955078125
+      ],
+      "size": [
+        270,
+        342
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "affine_schedule",
+          "type": "DICT",
+          "links": [
+            12
+          ]
+        },
+        {
+          "name": "plot",
+          "type": "IMAGE",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-affine",
+        "ver": "1dfc0d8c988b4c7fab783eafa5d7ae40604d964f",
+        "Node name for S&R": "WASAffineScheduleOptions",
+        "widget_ue_connectable": {},
+        "ue_properties": {
+          "version": "7.0.1",
+          "widget_ue_connectable": {
+            "start": true,
+            "end": true,
+            "bias": true,
+            "exponent": true,
+            "start_offset": true,
+            "end_offset": true,
+            "curve": true,
+            "plot_steps": true,
+            "plot_width": true,
+            "plot_height": true,
+            "show_grid": true,
+            "show_points": true
+          }
+        }
+      },
+      "widgets_values": [
+        0.2,
+        0.6,
+        0.25,
+        1,
+        0,
+        0,
+        "easeInOutSine",
+        100,
+        640,
+        320,
+        true,
+        false
+      ]
+    },
+    {
+      "id": 17,
+      "type": "VHS_LoadVideo",
+      "pos": [
+        12401.6279296875,
+        551.6316528320312
+      ],
+      "size": [
+        247.4499969482422,
+        450.2497863769531
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "meta_batch",
+          "shape": 7,
+          "type": "VHS_BatchManager",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            4
+          ]
+        },
+        {
+          "name": "frame_count",
+          "type": "INT",
+          "links": null
+        },
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": null
+        },
+        {
+          "name": "video_info",
+          "type": "VHS_VIDEOINFO",
+          "links": null
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-videohelpersuite",
+        "ver": "dabda5423a9df2d17940e619ba9bd6a6344453c7",
+        "Node name for S&R": "VHS_LoadVideo",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": {
+        "video": "was_raw_00001.mp4",
+        "force_rate": 16,
+        "custom_width": 0,
+        "custom_height": 0,
+        "frame_load_cap": 81,
+        "skip_first_frames": 0,
+        "select_every_nth": 1,
+        "format": "AnimateDiff",
+        "choose video to upload": "image",
+        "videopreview": {
+          "hidden": false,
+          "paused": false,
+          "params": {
+            "force_rate": 16,
+            "custom_width": 0,
+            "custom_height": 0,
+            "frame_load_cap": 81,
+            "skip_first_frames": 0,
+            "select_every_nth": 1,
+            "filename": "was_raw_00001.mp4",
+            "type": "input",
+            "format": "video/mp4"
+          }
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "easy int",
+      "pos": [
+        10610,
+        1230
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "int",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "title": "WIDTH",
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "ver": "1.3.3",
+        "Node name for S&R": "easy int",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        432
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 19,
+      "type": "easy int",
+      "pos": [
+        10607.83984375,
+        1340
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "int",
+          "type": "INT",
+          "links": []
+        }
+      ],
+      "title": "HEIGHT",
+      "properties": {
+        "cnr_id": "comfyui-easy-use",
+        "ver": "1.3.3",
+        "Node name for S&R": "easy int",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        240
+      ],
+      "color": "#223",
+      "bgcolor": "#335"
+    },
+    {
+      "id": 20,
+      "type": "FILM VFI",
+      "pos": [
+        13500,
+        550
+      ],
+      "size": [
+        256,
+        126
+      ],
+      "flags": {},
+      "order": 19,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "frames",
+          "type": "IMAGE",
+          "link": 14
+        },
+        {
+          "name": "optional_interpolation_states",
+          "shape": 7,
+          "type": "INTERPOLATION_STATES",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            25
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfyui-frame-interpolation",
+        "ver": "a969c01dbccd9e5510641be04eb51fe93f6bfc3d",
+        "Node name for S&R": "FILM VFI",
+        "widget_ue_connectable": {},
+        "ue_properties": {
+          "version": "7.0.1",
+          "widget_ue_connectable": {
+            "ckpt_name": true,
+            "clear_cache_after_n_frames": true,
+            "multiplier": true
+          }
+        }
+      },
+      "widgets_values": [
+        "film_net_fp32.pt",
+        10,
+        2
+      ]
+    },
+    {
+      "id": 16,
+      "type": "VHS_VideoCombine",
+      "pos": [
+        13810,
+        550
+      ],
+      "size": [
+        810.233154296875,
+        786.1490478515625
+      ],
+      "flags": {
+        "collapsed": false
+      },
+      "order": 20,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "images",
+          "type": "IMAGE",
+          "link": 25
+        },
+        {
+          "name": "audio",
+          "shape": 7,
+          "type": "AUDIO",
+          "link": null
+        },
+        {
+          "name": "meta_batch",
+          "shape": 7,
+          "type": "VHS_BatchManager",
+          "link": null
+        },
+        {
+          "name": "vae",
+          "shape": 7,
+          "type": "VAE",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Filenames",
+          "type": "VHS_FILENAMES",
+          "links": null
+        }
+      ],
+      "title": "UPSCALED 2K VIDEO",
+      "properties": {
+        "cnr_id": "comfyui-videohelpersuite",
+        "ver": "8e4d79471bf1952154768e8435a9300077b534fa",
+        "Node name for S&R": "VHS_VideoCombine",
+        "widget_ue_connectable": {},
+        "ue_properties": {
+          "version": "7.0.1",
+          "widget_ue_connectable": {
+            "frame_rate": true,
+            "loop_count": true,
+            "filename_prefix": true,
+            "format": true,
+            "pingpong": true,
+            "save_output": true,
+            "pix_fmt": true,
+            "crf": true,
+            "save_metadata": true,
+            "trim_to_audio": true
+          }
+        }
+      },
+      "widgets_values": {
+        "frame_rate": 48,
+        "loop_count": 0,
+        "filename_prefix": "wan/was_2k",
+        "format": "video/h264-mp4",
+        "pix_fmt": "yuv420p",
+        "crf": 19,
+        "save_metadata": true,
+        "trim_to_audio": false,
+        "pingpong": false,
+        "save_output": true,
+        "videopreview": {
+          "hidden": false,
+          "paused": false,
+          "params": {
+            "filename": "was_2k_00008.mp4",
+            "subfolder": "wan",
+            "type": "output",
+            "format": "video/h264-mp4",
+            "frame_rate": 48,
+            "workflow": "was_2k_00008.png",
+            "fullpath": "/mnt/k/ComfyUI/output/wan/was_2k_00008.mp4"
+          }
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "Image Resize",
+      "pos": [
+        12745.892578125,
+        551.748046875
+      ],
+      "size": [
+        270,
+        178
+      ],
+      "flags": {},
+      "order": 15,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 4
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            5
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-ns",
+        "ver": "f86447721c18758d7b3b6ae5769f52344a3d764a",
+        "Node name for S&R": "Image Resize",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "rescale",
+        "false",
+        "lanczos",
+        1.25,
+        1024,
+        1536
+      ]
+    },
+    {
       "id": 10,
       "type": "WASLatentAffineCommonOptions",
       "pos": [
@@ -585,7 +1004,7 @@
         420
       ],
       "flags": {},
-      "order": 7,
+      "order": 10,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -593,7 +1012,8 @@
           "name": "options",
           "type": "DICT",
           "links": [
-            9
+            9,
+            26
           ]
         }
       ],
@@ -655,7 +1075,7 @@
         1042
       ],
       "flags": {},
-      "order": 8,
+      "order": 11,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -663,7 +1083,8 @@
           "name": "options",
           "type": "DICT",
           "links": [
-            10
+            10,
+            27
           ]
         }
       ],
@@ -766,425 +1187,6 @@
       ]
     },
     {
-      "id": 13,
-      "type": "WASAffineScheduleOptions",
-      "pos": [
-        10897.4736328125,
-        1514.9053955078125
-      ],
-      "size": [
-        270,
-        342
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "affine_schedule",
-          "type": "DICT",
-          "links": [
-            12
-          ]
-        },
-        {
-          "name": "plot",
-          "type": "IMAGE",
-          "links": null
-        }
-      ],
-      "properties": {
-        "cnr_id": "was-affine",
-        "ver": "1dfc0d8c988b4c7fab783eafa5d7ae40604d964f",
-        "Node name for S&R": "WASAffineScheduleOptions",
-        "widget_ue_connectable": {},
-        "ue_properties": {
-          "version": "7.0.1",
-          "widget_ue_connectable": {
-            "start": true,
-            "end": true,
-            "bias": true,
-            "exponent": true,
-            "start_offset": true,
-            "end_offset": true,
-            "curve": true,
-            "plot_steps": true,
-            "plot_width": true,
-            "plot_height": true,
-            "show_grid": true,
-            "show_points": true
-          }
-        }
-      },
-      "widgets_values": [
-        0.2,
-        0.6,
-        0.25,
-        1,
-        0,
-        0,
-        "easeInOutSine",
-        100,
-        640,
-        320,
-        true,
-        false
-      ]
-    },
-    {
-      "id": 14,
-      "type": "Image Resize",
-      "pos": [
-        12745.892578125,
-        551.748046875
-      ],
-      "size": [
-        270,
-        178
-      ],
-      "flags": {},
-      "order": 16,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 4
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            5
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "was-ns",
-        "ver": "f86447721c18758d7b3b6ae5769f52344a3d764a",
-        "Node name for S&R": "Image Resize",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "rescale",
-        "false",
-        "lanczos",
-        2,
-        1024,
-        1536
-      ]
-    },
-    {
-      "id": 17,
-      "type": "VHS_LoadVideo",
-      "pos": [
-        12401.6279296875,
-        551.6316528320312
-      ],
-      "size": [
-        247.4499969482422,
-        450.2497863769531
-      ],
-      "flags": {},
-      "order": 10,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "meta_batch",
-          "shape": 7,
-          "type": "VHS_BatchManager",
-          "link": null
-        },
-        {
-          "name": "vae",
-          "shape": 7,
-          "type": "VAE",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            4
-          ]
-        },
-        {
-          "name": "frame_count",
-          "type": "INT",
-          "links": null
-        },
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "links": null
-        },
-        {
-          "name": "video_info",
-          "type": "VHS_VIDEOINFO",
-          "links": null
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfyui-videohelpersuite",
-        "ver": "dabda5423a9df2d17940e619ba9bd6a6344453c7",
-        "Node name for S&R": "VHS_LoadVideo",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": {
-        "video": "was_raw_00001.mp4",
-        "force_rate": 16,
-        "custom_width": 0,
-        "custom_height": 0,
-        "frame_load_cap": 81,
-        "skip_first_frames": 0,
-        "select_every_nth": 1,
-        "format": "AnimateDiff",
-        "choose video to upload": "image",
-        "videopreview": {
-          "hidden": false,
-          "paused": false,
-          "params": {
-            "force_rate": 16,
-            "custom_width": 0,
-            "custom_height": 0,
-            "frame_load_cap": 81,
-            "skip_first_frames": 0,
-            "select_every_nth": 1,
-            "filename": "was_raw_00001.mp4",
-            "type": "input",
-            "format": "video/mp4"
-          }
-        }
-      }
-    },
-    {
-      "id": 18,
-      "type": "easy int",
-      "pos": [
-        10610,
-        1230
-      ],
-      "size": [
-        270,
-        58
-      ],
-      "flags": {},
-      "order": 11,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "int",
-          "type": "INT",
-          "links": []
-        }
-      ],
-      "title": "WIDTH",
-      "properties": {
-        "cnr_id": "comfyui-easy-use",
-        "ver": "1.3.3",
-        "Node name for S&R": "easy int",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        432
-      ],
-      "color": "#223",
-      "bgcolor": "#335"
-    },
-    {
-      "id": 19,
-      "type": "easy int",
-      "pos": [
-        10607.83984375,
-        1340
-      ],
-      "size": [
-        270,
-        58
-      ],
-      "flags": {},
-      "order": 12,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "int",
-          "type": "INT",
-          "links": []
-        }
-      ],
-      "title": "HEIGHT",
-      "properties": {
-        "cnr_id": "comfyui-easy-use",
-        "ver": "1.3.3",
-        "Node name for S&R": "easy int",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        240
-      ],
-      "color": "#223",
-      "bgcolor": "#335"
-    },
-    {
-      "id": 20,
-      "type": "FILM VFI",
-      "pos": [
-        13500,
-        550
-      ],
-      "size": [
-        256,
-        126
-      ],
-      "flags": {},
-      "order": 19,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "frames",
-          "type": "IMAGE",
-          "link": 14
-        },
-        {
-          "name": "optional_interpolation_states",
-          "shape": 7,
-          "type": "INTERPOLATION_STATES",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            25
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfyui-frame-interpolation",
-        "ver": "a969c01dbccd9e5510641be04eb51fe93f6bfc3d",
-        "Node name for S&R": "FILM VFI",
-        "widget_ue_connectable": {},
-        "ue_properties": {
-          "version": "7.0.1",
-          "widget_ue_connectable": {
-            "ckpt_name": true,
-            "clear_cache_after_n_frames": true,
-            "multiplier": true
-          }
-        }
-      },
-      "widgets_values": [
-        "film_net_fp32.pt",
-        10,
-        2
-      ]
-    },
-    {
-      "id": 16,
-      "type": "VHS_VideoCombine",
-      "pos": [
-        13810,
-        550
-      ],
-      "size": [
-        810.233154296875,
-        334
-      ],
-      "flags": {
-        "collapsed": false
-      },
-      "order": 20,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "images",
-          "type": "IMAGE",
-          "link": 25
-        },
-        {
-          "name": "audio",
-          "shape": 7,
-          "type": "AUDIO",
-          "link": null
-        },
-        {
-          "name": "meta_batch",
-          "shape": 7,
-          "type": "VHS_BatchManager",
-          "link": null
-        },
-        {
-          "name": "vae",
-          "shape": 7,
-          "type": "VAE",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "Filenames",
-          "type": "VHS_FILENAMES",
-          "links": null
-        }
-      ],
-      "title": "UPSCALED 2K VIDEO",
-      "properties": {
-        "cnr_id": "comfyui-videohelpersuite",
-        "ver": "8e4d79471bf1952154768e8435a9300077b534fa",
-        "Node name for S&R": "VHS_VideoCombine",
-        "widget_ue_connectable": {},
-        "ue_properties": {
-          "version": "7.0.1",
-          "widget_ue_connectable": {
-            "frame_rate": true,
-            "loop_count": true,
-            "filename_prefix": true,
-            "format": true,
-            "pingpong": true,
-            "save_output": true,
-            "pix_fmt": true,
-            "crf": true,
-            "save_metadata": true,
-            "trim_to_audio": true
-          }
-        }
-      },
-      "widgets_values": {
-        "frame_rate": 48,
-        "loop_count": 0,
-        "filename_prefix": "wan/was_2k",
-        "format": "video/h264-mp4",
-        "pix_fmt": "yuv420p",
-        "crf": 19,
-        "save_metadata": true,
-        "trim_to_audio": false,
-        "pingpong": false,
-        "save_output": true,
-        "videopreview": {
-          "hidden": false,
-          "paused": false,
-          "params": {
-            "filename": "was_2k_00003.mp4",
-            "subfolder": "wan",
-            "type": "output",
-            "format": "video/h264-mp4",
-            "frame_rate": 48,
-            "workflow": "was_2k_00003.png",
-            "fullpath": "/workspace/ComfyUI/output/wan/was_2k_00003.mp4"
-          }
-        }
-      }
-    },
-    {
       "id": 15,
       "type": "WASUltimateCustomAdvancedAffineNoUpscale",
       "pos": [
@@ -1193,7 +1195,7 @@
       ],
       "size": [
         393.7166748046875,
-        1170
+        1218
       ],
       "flags": {},
       "order": 18,
@@ -1271,31 +1273,30 @@
       "widgets_values": [
         31222639,
         "fixed",
-        4,
+        8,
         1,
         "res_2s",
         "beta57",
-        0.15,
-        "Linear",
-        864,
-        480,
+        0.1,
+        464,
+        248,
         8,
         32,
-        "None",
-        1,
-        64,
-        8,
-        16,
-        true,
+        32,
         2,
-        2,
-        1.05,
+        1.005,
         0,
-        "solid",
+        "white_noise",
+        16,
+        false,
+        40,
+        "static",
+        1,
         true,
-        "per_frame",
-        81,
-        "per_frame"
+        "solid",
+        0,
+        "cosine",
+        32
       ]
     }
   ],
@@ -1435,6 +1436,22 @@
       16,
       0,
       "IMAGE"
+    ],
+    [
+      26,
+      10,
+      0,
+      11,
+      0,
+      "DICT"
+    ],
+    [
+      27,
+      12,
+      0,
+      11,
+      1,
+      "DICT"
     ]
   ],
   "groups": [],
@@ -1443,13 +1460,13 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.6956189356469119,
+      "scale": 1.0184556836806513,
       "offset": [
-        -9360.45339969018,
-        -46.868268195684635
+        -11888.003653663647,
+        -458.03670985037365
       ]
     },
-    "frontendVersion": "1.25.11",
+    "frontendVersion": "1.26.11",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,

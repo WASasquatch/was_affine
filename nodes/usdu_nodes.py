@@ -39,7 +39,7 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 "mask_blur": ("INT", {"default": 8, "min": 0, "max": 64, "step": 1, "tooltip": "Mask blur (px) for tile feathering."}),
                 "tile_padding": ("INT", {"default": 32, "min": 0, "max": 8192, "step": 8, "tooltip": "Tile padding/overlap size (px)."}),
                 # Misc
-                "tiled_decode": ("BOOLEAN", {"default": False, "tooltip": "Decode in tiles (placeholder)."}),
+                "tiled_decode": ("BOOLEAN", {"default": False, "tooltip": "Use ComfyUI's built-in VAE tiled decode (compression-aware). Helps reduce VRAM spikes on large images or video VAEs."}),
                 # Custom sampling inputs
                 "noise": ("NOISE", {"tooltip": "World-aligned noise generator for step 0; zeros for subsequent steps."}),
                 # Affine controls

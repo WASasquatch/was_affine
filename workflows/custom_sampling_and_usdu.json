@@ -77,12 +77,12 @@
           {
             "name": "A",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_vpcov_00001_.png&type=temp&subfolder=&rand=0.4234115752029054"
+            "url": "/api/view?filename=rgthree.compare._temp_sfalu_00005_.png&type=temp&subfolder=&rand=0.1703994139852798"
           },
           {
             "name": "B",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_vpcov_00002_.png&type=temp&subfolder=&rand=0.8418917445870758"
+            "url": "/api/view?filename=rgthree.compare._temp_sfalu_00006_.png&type=temp&subfolder=&rand=0.7690664538634336"
           }
         ]
       ]
@@ -820,40 +820,6 @@
       ]
     },
     {
-      "id": 43,
-      "type": "UpscaleModelLoader",
-      "pos": [
-        1318.0799560546875,
-        1258.11572265625
-      ],
-      "size": [
-        270,
-        58
-      ],
-      "flags": {},
-      "order": 4,
-      "mode": 4,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "UPSCALE_MODEL",
-          "type": "UPSCALE_MODEL",
-          "links": [
-            110
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.56",
-        "Node name for S&R": "UpscaleModelLoader",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "4x-UltraMix_Balanced.pth"
-      ]
-    },
-    {
       "id": 44,
       "type": "SaveImage",
       "pos": [
@@ -866,7 +832,7 @@
       ],
       "flags": {},
       "order": 26,
-      "mode": 4,
+      "mode": 0,
       "inputs": [
         {
           "name": "images",
@@ -1133,7 +1099,7 @@
         82
       ],
       "flags": {},
-      "order": 5,
+      "order": 4,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1168,7 +1134,7 @@
         58
       ],
       "flags": {},
-      "order": 6,
+      "order": 5,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1204,7 +1170,7 @@
         106
       ],
       "flags": {},
-      "order": 7,
+      "order": 6,
       "mode": 0,
       "inputs": [],
       "outputs": [
@@ -1230,6 +1196,153 @@
       ]
     },
     {
+      "id": 43,
+      "type": "UpscaleModelLoader",
+      "pos": [
+        1318.0799560546875,
+        1258.11572265625
+      ],
+      "size": [
+        270,
+        58
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "UPSCALE_MODEL",
+          "type": "UPSCALE_MODEL",
+          "links": [
+            110
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.56",
+        "Node name for S&R": "UpscaleModelLoader",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "4x-UltraMix_Balanced.pth"
+      ]
+    },
+    {
+      "id": 38,
+      "type": "WASUltimateCustomAdvancedAffineNoUpscale",
+      "pos": [
+        856.4920043945312,
+        1406.9287109375
+      ],
+      "size": [
+        394.5,
+        1074
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 92
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 84
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 82
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 83
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 85
+        },
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 98
+        },
+        {
+          "name": "affine_schedule",
+          "type": "DICT",
+          "link": 88
+        },
+        {
+          "name": "external_mask",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 89
+        },
+        {
+          "name": "noise_options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 90
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            91
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-affine",
+        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
+        "Node name for S&R": "WASUltimateCustomAdvancedAffineNoUpscale",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1012854120,
+        "randomize",
+        20,
+        8,
+        "euler",
+        "simple",
+        0.2,
+        768,
+        1024,
+        8,
+        32,
+        32,
+        2,
+        1.1,
+        0,
+        "white_noise",
+        16,
+        true,
+        8,
+        "per_frame",
+        1.2,
+        false,
+        "white_noise",
+        0,
+        false,
+        2
+      ]
+    },
+    {
       "id": 42,
       "type": "WASUltimateCustomAdvancedAffine",
       "pos": [
@@ -1242,7 +1355,7 @@
       ],
       "flags": {},
       "order": 23,
-      "mode": 4,
+      "mode": 0,
       "inputs": [
         {
           "name": "image",
@@ -1331,148 +1444,33 @@
         "widget_ue_connectable": {}
       },
       "widgets_values": [
-        906534608,
+        462614286,
         "randomize",
         20,
         1,
         "euler",
         "simple",
         0.2,
-        "None",
         768,
         1024,
         8,
         32,
-        "None",
-        1,
-        64,
-        8,
-        16,
-        true,
-        true,
-        4,
-        1.2,
-        0,
-        "white_noise",
-        1,
-        false,
-        2,
-        2,
-        "static"
-      ]
-    },
-    {
-      "id": 38,
-      "type": "WASUltimateCustomAdvancedAffineNoUpscale",
-      "pos": [
-        856.4920043945312,
-        1406.9287109375
-      ],
-      "size": [
-        394.5,
-        1074
-      ],
-      "flags": {},
-      "order": 25,
-      "mode": 4,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 92
-        },
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 84
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 82
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 83
-        },
-        {
-          "name": "vae",
-          "type": "VAE",
-          "link": 85
-        },
-        {
-          "name": "noise",
-          "type": "NOISE",
-          "link": 98
-        },
-        {
-          "name": "affine_schedule",
-          "type": "DICT",
-          "link": 88
-        },
-        {
-          "name": "external_mask",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "name": "options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 89
-        },
-        {
-          "name": "noise_options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 90
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            91
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "was-affine",
-        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
-        "Node name for S&R": "WASUltimateCustomAdvancedAffineNoUpscale",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        1646491514,
-        "randomize",
-        20,
-        8,
-        "euler",
-        "simple",
-        0.2,
-        "None",
-        768,
-        1024,
-        8,
         32,
-        "None",
-        1,
-        64,
-        8,
-        16,
-        true,
-        false,
-        4,
-        1.2,
+        2,
+        1.1,
         0,
         "white_noise",
-        0,
-        false,
+        16,
+        true,
+        8,
         2,
-        "static"
+        "per_frame",
+        true,
+        false,
+        1,
+        0,
+        "cosine",
+        2
       ]
     },
     {
@@ -1579,26 +1577,25 @@
         "euler",
         "simple",
         0.25,
-        "Linear",
         768,
         1024,
         8,
         32,
-        "None",
-        0.5,
-        64,
-        8,
+        32,
+        2,
+        1.1,
+        0,
+        "white_noise",
         16,
         true,
-        true,
-        4,
+        8,
+        "per_frame",
         1.5,
         0,
         "perlin",
-        1,
-        false,
-        2,
-        "static"
+        0,
+        "cosine",
+        2
       ]
     }
   ],
@@ -2225,13 +2222,13 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.43056764313424506,
+      "scale": 0.7627768444385473,
       "offset": [
-        4133.616457544388,
-        745.562730582104
+        1543.4925932248348,
+        -1021.9194318558459
       ]
     },
-    "frontendVersion": "1.25.11",
+    "frontendVersion": "1.26.11",
     "VHS_latentpreview": false,
     "VHS_latentpreviewrate": 0,
     "VHS_MetadataImage": true,
