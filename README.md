@@ -345,7 +345,8 @@ Use external masks to limit where affine effects are applied:
 3. Restart ComfyUI via Manager's main menu.
 
 
-**Dependencies:** Standard ComfyUI installation (torch, numpy). ***[Ultimate SD Upscaler](https://github.com/ssitu/ComfyUI_UltimateSDUpscale) nodes require the UltimateSDUpscale extension.***
+**Dependencies:** Standard ComfyUI installation (torch, numpy).
+**Note:** Doesn't requires UltimateSDUpscale nodes.
 
 ---
 
