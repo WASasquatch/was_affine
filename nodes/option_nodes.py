@@ -1,6 +1,6 @@
 import torch
 
-from .utils import affine_step_schedule
+from ..modules.utils import affine_step_schedule
 
 class WASLatentAffineOptions:
     @classmethod
@@ -658,7 +658,7 @@ class WASAffineScheduleOptions:
         return (sched, plot_img)
 
 
-OPTION_NODE_CLASS_MAPPINGS = {
+NODE_CLASS_MAPPINGS = {
     "WASLatentAffineOptions": WASLatentAffineOptions,
     "WASLatentAffineCommonOptions": WASLatentAffineCommonOptions,
     "WASDetailRegionOptions": WASDetailRegionOptions,
@@ -679,7 +679,7 @@ OPTION_NODE_CLASS_MAPPINGS = {
     "WASAffineScheduleOptions": WASAffineScheduleOptions,
 }
 
-OPTION_NODE_DISPLAY_NAME_MAPPINGS = {
+NODE_DISPLAY_NAME_MAPPINGS = {
     "WASLatentAffineOptions": "Latent Affine Super Options",
     "WASLatentAffine": "Latent Affine",
     "WASLatentAffineSimple": "Latent Affine Simple",

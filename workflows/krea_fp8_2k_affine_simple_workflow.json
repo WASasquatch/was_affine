@@ -1,8 +1,8 @@
 {
   "id": "908d0bfb-e192-4627-9b57-147496e6e2dd",
   "revision": 0,
-  "last_node_id": 76,
-  "last_link_id": 122,
+  "last_node_id": 77,
+  "last_link_id": 124,
   "nodes": [
     {
       "id": 40,
@@ -453,7 +453,7 @@
         {
           "name": "latent_image",
           "type": "LATENT",
-          "link": 108
+          "link": 124
         },
         {
           "name": "noise_seed",
@@ -527,78 +527,6 @@
         1280,
         720,
         1
-      ]
-    },
-    {
-      "id": 52,
-      "type": "KSamplerAdvanced",
-      "pos": [
-        -8.939355850219727,
-        541.470947265625
-      ],
-      "size": [
-        304.66668701171875,
-        546
-      ],
-      "flags": {},
-      "order": 8,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 71
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 72
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 73
-        },
-        {
-          "name": "latent_image",
-          "type": "LATENT",
-          "link": 74
-        },
-        {
-          "name": "noise_seed",
-          "type": "INT",
-          "widget": {
-            "name": "noise_seed"
-          },
-          "link": 81
-        }
-      ],
-      "outputs": [
-        {
-          "name": "LATENT",
-          "type": "LATENT",
-          "links": [
-            107
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.3.51",
-        "Node name for S&R": "KSamplerAdvanced",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        "enable",
-        277251746703202,
-        "fixed",
-        20,
-        1,
-        "res_6s_ode",
-        "sgm_uniform",
-        0,
-        10,
-        "enable"
       ]
     },
     {
@@ -913,11 +841,83 @@
       ]
     },
     {
-      "id": 69,
-      "type": "LatentAffineSimple",
+      "id": 52,
+      "type": "KSamplerAdvanced",
       "pos": [
-        320.0562438964844,
-        543.6166381835938
+        -8.939355850219727,
+        541.470947265625
+      ],
+      "size": [
+        304.66668701171875,
+        546
+      ],
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 71
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 72
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 73
+        },
+        {
+          "name": "latent_image",
+          "type": "LATENT",
+          "link": 74
+        },
+        {
+          "name": "noise_seed",
+          "type": "INT",
+          "widget": {
+            "name": "noise_seed"
+          },
+          "link": 81
+        }
+      ],
+      "outputs": [
+        {
+          "name": "LATENT",
+          "type": "LATENT",
+          "links": [
+            123
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.3.51",
+        "Node name for S&R": "KSamplerAdvanced",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        "enable",
+        277251746703202,
+        "fixed",
+        20,
+        1,
+        "res_6s_ode",
+        "sgm_uniform",
+        0,
+        10,
+        "enable"
+      ]
+    },
+    {
+      "id": 77,
+      "type": "WASLatentAffineSimple",
+      "pos": [
+        319.7560119628906,
+        542.3884887695312
       ],
       "size": [
         270,
@@ -930,7 +930,7 @@
         {
           "name": "latent",
           "type": "LATENT",
-          "link": 107
+          "link": 123
         }
       ],
       "outputs": [
@@ -938,7 +938,7 @@
           "name": "latent",
           "type": "LATENT",
           "links": [
-            108
+            124
           ]
         },
         {
@@ -949,15 +949,15 @@
       ],
       "properties": {
         "cnr_id": "was-affine",
-        "ver": "d2c758cd71cdd73b2cc7fdc15572508e0db2dfb6",
-        "Node name for S&R": "LatentAffineSimple",
-        "widget_ue_connectable": {}
+        "ver": "93e568966038e14f7c734ed554e83c395d38e745",
+        "widget_ue_connectable": {},
+        "Node name for S&R": "WASLatentAffineSimple"
       },
       "widgets_values": [
         1.2,
-        "worley_edges",
+        "white_noise",
         0,
-        "fixed",
+        "randomize",
         "static",
         9973
       ]
@@ -1197,22 +1197,6 @@
       "MODEL"
     ],
     [
-      107,
-      52,
-      0,
-      69,
-      0,
-      "LATENT"
-    ],
-    [
-      108,
-      69,
-      0,
-      54,
-      3,
-      "LATENT"
-    ],
-    [
       111,
       70,
       0,
@@ -1226,6 +1210,22 @@
       0,
       70,
       0,
+      "LATENT"
+    ],
+    [
+      123,
+      52,
+      0,
+      77,
+      0,
+      "LATENT"
+    ],
+    [
+      124,
+      77,
+      0,
+      54,
+      3,
       "LATENT"
     ]
   ],
@@ -1275,8 +1275,8 @@
     "ds": {
       "scale": 0.9233434098820572,
       "offset": [
-        1507.2999595709416,
-        -19.28943282381141
+        1508.382980242663,
+        11.035145984387984
       ]
     },
     "frontendVersion": "1.25.11",

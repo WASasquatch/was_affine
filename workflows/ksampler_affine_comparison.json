@@ -1312,12 +1312,12 @@
           {
             "name": "A",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00011_.png&type=temp&subfolder=&rand=0.0912231748992599"
+            "url": "/api/view?filename=rgthree.compare._temp_vvlkf_00001_.png&type=temp&subfolder=&rand=0.7985573208427686"
           },
           {
             "name": "B",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_iyoax_00012_.png&type=temp&subfolder=&rand=0.5255972960168483"
+            "url": "/api/view?filename=rgthree.compare._temp_vvlkf_00002_.png&type=temp&subfolder=&rand=0.4628307023137199"
           }
         ]
       ]
@@ -1363,12 +1363,12 @@
           {
             "name": "A",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_hghaj_00003_.png&type=temp&subfolder=&rand=0.6473038560096688"
+            "url": "/api/view?filename=rgthree.compare._temp_iapsl_00001_.png&type=temp&subfolder=&rand=0.29760313478062084"
           },
           {
             "name": "B",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_hghaj_00004_.png&type=temp&subfolder=&rand=0.4292340662009857"
+            "url": "/api/view?filename=rgthree.compare._temp_iapsl_00002_.png&type=temp&subfolder=&rand=0.7852908266047173"
           }
         ]
       ]
@@ -2383,14 +2383,18 @@
   "extra": {
     "ue_links": [],
     "ds": {
-      "scale": 0.8031542428983534,
+      "scale": 0.6034216700964339,
       "offset": [
-        357.39433402326085,
-        176.59412950558024
+        1151.771012776292,
+        313.47319224112215
       ]
     },
     "links_added_by_ue": [],
-    "frontendVersion": "1.25.11"
+    "frontendVersion": "1.25.11",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
   },
   "version": 0.4
 }

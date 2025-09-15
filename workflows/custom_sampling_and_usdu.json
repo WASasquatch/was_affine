@@ -1,134 +1,9 @@
 {
   "id": "efd3e3fa-f305-43ad-b5df-d23b92d39c43",
   "revision": 0,
-  "last_node_id": 50,
+  "last_node_id": 51,
   "last_link_id": 114,
   "nodes": [
-    {
-      "id": 33,
-      "type": "WASUltimateCustomAdvancedAffineCustom",
-      "pos": [
-        -160.77134704589844,
-        1391.919189453125
-      ],
-      "size": [
-        370.3666687011719,
-        1090.0001220703125
-      ],
-      "flags": {},
-      "order": 24,
-      "mode": 4,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 79
-        },
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 67
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 68
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 69
-        },
-        {
-          "name": "vae",
-          "type": "VAE",
-          "link": 70
-        },
-        {
-          "name": "noise",
-          "type": "NOISE",
-          "link": 99
-        },
-        {
-          "name": "affine_schedule",
-          "type": "DICT",
-          "link": 73
-        },
-        {
-          "name": "external_mask",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "name": "options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 72
-        },
-        {
-          "name": "noise_options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 74
-        },
-        {
-          "name": "custom_sampler",
-          "shape": 7,
-          "type": "SAMPLER",
-          "link": 75
-        },
-        {
-          "name": "custom_sigmas",
-          "shape": 7,
-          "type": "SIGMAS",
-          "link": 81
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            77
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "was-affine",
-        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
-        "Node name for S&R": "WASUltimateCustomAdvancedAffineCustom",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        1546714826,
-        "fixed",
-        20,
-        7,
-        "euler",
-        "simple",
-        0.25,
-        "Linear",
-        768,
-        1024,
-        8,
-        32,
-        "Band Pass",
-        0.5,
-        64,
-        8,
-        16,
-        true,
-        false,
-        2,
-        1.5,
-        0,
-        "perlin",
-        0,
-        true,
-        "per_frame"
-      ]
-    },
     {
       "id": 34,
       "type": "SaveImage",
@@ -160,119 +35,6 @@
       },
       "widgets_values": [
         "ComfyUI"
-      ]
-    },
-    {
-      "id": 38,
-      "type": "WASUltimateCustomAdvancedAffineNoUpscale",
-      "pos": [
-        856.4920043945312,
-        1406.9287109375
-      ],
-      "size": [
-        394.5,
-        1050
-      ],
-      "flags": {},
-      "order": 25,
-      "mode": 4,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 92
-        },
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 84
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 82
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 83
-        },
-        {
-          "name": "vae",
-          "type": "VAE",
-          "link": 85
-        },
-        {
-          "name": "noise",
-          "type": "NOISE",
-          "link": 98
-        },
-        {
-          "name": "affine_schedule",
-          "type": "DICT",
-          "link": 88
-        },
-        {
-          "name": "external_mask",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "name": "options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 89
-        },
-        {
-          "name": "noise_options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 90
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            91
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "was-affine",
-        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
-        "Node name for S&R": "WASUltimateCustomAdvancedAffineNoUpscale",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        1758330120,
-        "randomize",
-        20,
-        8,
-        "euler",
-        "simple",
-        0.2,
-        "None",
-        768,
-        1024,
-        8,
-        32,
-        "None",
-        1,
-        64,
-        8,
-        16,
-        true,
-        false,
-        1,
-        1.2,
-        0,
-        "white_noise",
-        0,
-        false,
-        "static"
       ]
     },
     {
@@ -315,12 +77,12 @@
           {
             "name": "A",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_kymit_00017_.png&type=temp&subfolder=&rand=0.42368149227116114"
+            "url": "/api/view?filename=rgthree.compare._temp_vpcov_00001_.png&type=temp&subfolder=&rand=0.4234115752029054"
           },
           {
             "name": "B",
             "selected": true,
-            "url": "/api/view?filename=rgthree.compare._temp_kymit_00018_.png&type=temp&subfolder=&rand=0.5363272513640932"
+            "url": "/api/view?filename=rgthree.compare._temp_vpcov_00002_.png&type=temp&subfolder=&rand=0.8418917445870758"
           }
         ]
       ]
@@ -1092,137 +854,6 @@
       ]
     },
     {
-      "id": 42,
-      "type": "WASUltimateCustomAdvancedAffine",
-      "pos": [
-        1826.4903564453125,
-        1406.9287109375
-      ],
-      "size": [
-        308.9166564941406,
-        1134.0001220703125
-      ],
-      "flags": {},
-      "order": 23,
-      "mode": 4,
-      "inputs": [
-        {
-          "name": "image",
-          "type": "IMAGE",
-          "link": 106
-        },
-        {
-          "name": "model",
-          "type": "MODEL",
-          "link": 105
-        },
-        {
-          "name": "positive",
-          "type": "CONDITIONING",
-          "link": 103
-        },
-        {
-          "name": "negative",
-          "type": "CONDITIONING",
-          "link": 104
-        },
-        {
-          "name": "vae",
-          "type": "VAE",
-          "link": 102
-        },
-        {
-          "name": "noise",
-          "type": "NOISE",
-          "link": 101
-        },
-        {
-          "name": "affine_schedule",
-          "type": "DICT",
-          "link": 108
-        },
-        {
-          "name": "upscale_model",
-          "type": "UPSCALE_MODEL",
-          "link": 110
-        },
-        {
-          "name": "external_mask",
-          "shape": 7,
-          "type": "IMAGE",
-          "link": null
-        },
-        {
-          "name": "options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 109
-        },
-        {
-          "name": "noise_options",
-          "shape": 7,
-          "type": "DICT",
-          "link": 107
-        },
-        {
-          "name": "custom_sampler",
-          "shape": 7,
-          "type": "SAMPLER",
-          "link": null
-        },
-        {
-          "name": "custom_sigmas",
-          "shape": 7,
-          "type": "SIGMAS",
-          "link": null
-        }
-      ],
-      "outputs": [
-        {
-          "name": "IMAGE",
-          "type": "IMAGE",
-          "links": [
-            111
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "was-affine",
-        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
-        "Node name for S&R": "WASUltimateCustomAdvancedAffine",
-        "widget_ue_connectable": {}
-      },
-      "widgets_values": [
-        978875515,
-        "randomize",
-        20,
-        1,
-        "euler",
-        "simple",
-        0.2,
-        "None",
-        768,
-        1024,
-        8,
-        32,
-        "None",
-        1,
-        64,
-        8,
-        16,
-        true,
-        false,
-        1,
-        1.2,
-        0,
-        "white_noise",
-        0,
-        false,
-        2,
-        "static"
-      ]
-    },
-    {
       "id": 44,
       "type": "SaveImage",
       "pos": [
@@ -1596,6 +1227,378 @@
         768,
         1024,
         1
+      ]
+    },
+    {
+      "id": 42,
+      "type": "WASUltimateCustomAdvancedAffine",
+      "pos": [
+        1826.4903564453125,
+        1406.9287109375
+      ],
+      "size": [
+        308.9166564941406,
+        1158
+      ],
+      "flags": {},
+      "order": 23,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 106
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 105
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 103
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 104
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 102
+        },
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 101
+        },
+        {
+          "name": "affine_schedule",
+          "type": "DICT",
+          "link": 108
+        },
+        {
+          "name": "upscale_model",
+          "type": "UPSCALE_MODEL",
+          "link": 110
+        },
+        {
+          "name": "external_mask",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 109
+        },
+        {
+          "name": "noise_options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 107
+        },
+        {
+          "name": "custom_sampler",
+          "shape": 7,
+          "type": "SAMPLER",
+          "link": null
+        },
+        {
+          "name": "custom_sigmas",
+          "shape": 7,
+          "type": "SIGMAS",
+          "link": null
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            111
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-affine",
+        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
+        "Node name for S&R": "WASUltimateCustomAdvancedAffine",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        906534608,
+        "randomize",
+        20,
+        1,
+        "euler",
+        "simple",
+        0.2,
+        "None",
+        768,
+        1024,
+        8,
+        32,
+        "None",
+        1,
+        64,
+        8,
+        16,
+        true,
+        true,
+        4,
+        1.2,
+        0,
+        "white_noise",
+        1,
+        false,
+        2,
+        2,
+        "static"
+      ]
+    },
+    {
+      "id": 38,
+      "type": "WASUltimateCustomAdvancedAffineNoUpscale",
+      "pos": [
+        856.4920043945312,
+        1406.9287109375
+      ],
+      "size": [
+        394.5,
+        1074
+      ],
+      "flags": {},
+      "order": 25,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 92
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 84
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 82
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 83
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 85
+        },
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 98
+        },
+        {
+          "name": "affine_schedule",
+          "type": "DICT",
+          "link": 88
+        },
+        {
+          "name": "external_mask",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 89
+        },
+        {
+          "name": "noise_options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 90
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            91
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-affine",
+        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
+        "Node name for S&R": "WASUltimateCustomAdvancedAffineNoUpscale",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1646491514,
+        "randomize",
+        20,
+        8,
+        "euler",
+        "simple",
+        0.2,
+        "None",
+        768,
+        1024,
+        8,
+        32,
+        "None",
+        1,
+        64,
+        8,
+        16,
+        true,
+        false,
+        4,
+        1.2,
+        0,
+        "white_noise",
+        0,
+        false,
+        2,
+        "static"
+      ]
+    },
+    {
+      "id": 33,
+      "type": "WASUltimateCustomAdvancedAffineCustom",
+      "pos": [
+        -160.77134704589844,
+        1391.919189453125
+      ],
+      "size": [
+        370.3666687011719,
+        1114
+      ],
+      "flags": {},
+      "order": 24,
+      "mode": 4,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 79
+        },
+        {
+          "name": "model",
+          "type": "MODEL",
+          "link": 67
+        },
+        {
+          "name": "positive",
+          "type": "CONDITIONING",
+          "link": 68
+        },
+        {
+          "name": "negative",
+          "type": "CONDITIONING",
+          "link": 69
+        },
+        {
+          "name": "vae",
+          "type": "VAE",
+          "link": 70
+        },
+        {
+          "name": "noise",
+          "type": "NOISE",
+          "link": 99
+        },
+        {
+          "name": "affine_schedule",
+          "type": "DICT",
+          "link": 73
+        },
+        {
+          "name": "external_mask",
+          "shape": 7,
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 72
+        },
+        {
+          "name": "noise_options",
+          "shape": 7,
+          "type": "DICT",
+          "link": 74
+        },
+        {
+          "name": "custom_sampler",
+          "shape": 7,
+          "type": "SAMPLER",
+          "link": 75
+        },
+        {
+          "name": "custom_sigmas",
+          "shape": 7,
+          "type": "SIGMAS",
+          "link": 81
+        }
+      ],
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            77
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "was-affine",
+        "ver": "6a66fb7e190646187854de0391b40f32dc689866",
+        "Node name for S&R": "WASUltimateCustomAdvancedAffineCustom",
+        "widget_ue_connectable": {}
+      },
+      "widgets_values": [
+        1546714826,
+        "fixed",
+        20,
+        7,
+        "euler",
+        "simple",
+        0.25,
+        "Linear",
+        768,
+        1024,
+        8,
+        32,
+        "None",
+        0.5,
+        64,
+        8,
+        16,
+        true,
+        true,
+        4,
+        1.5,
+        0,
+        "perlin",
+        1,
+        false,
+        2,
+        "static"
       ]
     }
   ],
@@ -2222,13 +2225,17 @@
     "ue_links": [],
     "links_added_by_ue": [],
     "ds": {
-      "scale": 0.3914251301220421,
+      "scale": 0.43056764313424506,
       "offset": [
-        3374.1089072498035,
-        1690.1761710659027
+        4133.616457544388,
+        745.562730582104
       ]
     },
-    "frontendVersion": "1.25.11"
+    "frontendVersion": "1.25.11",
+    "VHS_latentpreview": false,
+    "VHS_latentpreviewrate": 0,
+    "VHS_MetadataImage": true,
+    "VHS_KeepIntermediate": true
   },
   "version": 0.4
 }
