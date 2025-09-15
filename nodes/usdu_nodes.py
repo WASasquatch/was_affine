@@ -64,6 +64,11 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 "overlap_blend_count": ("INT", {"default": 0, "min": 0, "max": 64, "step": 1, "tooltip": "Crossfade this many images between consecutive batches to hide boundary shifts. 0 disables."}),
                 "overlap_blend_curve": (["cosine", "linear"], {"default": "cosine", "tooltip": "Curve for crossfade between batches."}),
                 "verbose": ("BOOLEAN", {"default": False, "tooltip": "Enable detailed logging of shapes, tiles, and progress for debugging."}),
+                # Tiled decode tunables
+                "tiled_tile_size": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8, "tooltip": "Target output tile size in pixels for VAE tiled decode (pre-compression)."}),
+                "tiled_overlap": ("INT", {"default": 64, "min": 0, "max": 1024, "step": 1, "tooltip": "Output-space overlap in pixels for tiled decode (pre-compression)."}),
+                "tiled_temporal_size": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 1, "tooltip": "Temporal window size for video tiled decode (frames, pre-compression). 0 disables temporal tiling."}),
+                "tiled_temporal_overlap": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1, "tooltip": "Temporal overlap for video tiled decode (frames, pre-compression)."}),
             },
         }
 
@@ -104,6 +109,10 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         global_noise_mode=False,
         overlap_blend_count=0,
         overlap_blend_curve="cosine",
+        tiled_tile_size=512,
+        tiled_overlap=64,
+        tiled_temporal_size=64,
+        tiled_temporal_overlap=8,
         verbose=False,
     ):
         def dbg(msg):
@@ -331,10 +340,10 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
             try:
                 # Use ComfyUI built-in tiled decode if enabled, else direct decode
                 if tiled_decode:
-                    tile_size = 512
-                    overlap = 64
-                    temporal_size = 64
-                    temporal_overlap = 8
+                    tile_size = int(tiled_tile_size)
+                    overlap = int(tiled_overlap)
+                    temporal_size = int(tiled_temporal_size)
+                    temporal_overlap = int(tiled_temporal_overlap)
                     # Enforce sane relationships
                     if tile_size < overlap * 4:
                         overlap = tile_size // 4
@@ -453,6 +462,10 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         global_noise_mode=False,
         overlap_blend_count=0,
         overlap_blend_curve="cosine",
+        tiled_tile_size=512,
+        tiled_overlap=64,
+        tiled_temporal_size=64,
+        tiled_temporal_overlap=8,
         verbose=False,
     ):
         def dbg(msg):
@@ -742,6 +755,10 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
         global_noise_mode=False,
         overlap_blend_count=0,
         overlap_blend_curve="cosine",
+        tiled_tile_size=512,
+        tiled_overlap=64,
+        tiled_temporal_size=64,
+        tiled_temporal_overlap=8,
         verbose=False,
     ):
         print(f"[WAS Affine] Upscaling image to {upscale_factor}x...")
@@ -868,6 +885,10 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
             global_noise_mode=global_noise_mode,
             overlap_blend_count=overlap_blend_count,
             overlap_blend_curve=overlap_blend_curve,
+            tiled_tile_size=tiled_tile_size,
+            tiled_overlap=tiled_overlap,
+            tiled_temporal_size=tiled_temporal_size,
+            tiled_temporal_overlap=tiled_temporal_overlap,
             verbose=verbose,
         )
 

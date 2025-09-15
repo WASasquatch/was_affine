@@ -141,17 +141,38 @@ Advanced custom sampling with affine integration.
 Full upscaling with model-based upscaling and affine enhancement.
 
 **Key Features:**
-- `upscale_model` / `upscale_factor` – Upscaling configuration
-- Tiling parameters (`tile_width`, `tile_height`, `tile_padding`)
-- Seam fixing options
-- Full affine parameter set
-- World-aligned noise for consistent tiling
+- `upscale_model` / `upscale_factor` – Pre-upscale configuration before tiling.
+- Tiling parameters – `tile_width`, `tile_height`, `tile_padding`, `mask_blur`.
+- `tiled_decode` – Uses ComfyUI's built-in VAE tiled decode (compression-aware) to reduce VRAM peaks for large images/videos.
+- Batching controls – `batch_size` for processing the IMAGE batch in chunks; `merge_frames_in_batch` to merge [B,F,H,W,C] decodes into [B*F,H,W,C] for safe concatenation.
+- Noise determinism – `deterministic_noise` and `global_noise_mode` to make outputs batching-invariant and ignore NOISE input if desired.
+- Cross-batch blending – `overlap_blend_count` and `overlap_blend_curve` to softly crossfade at batch boundaries without dropping frames.
+- Full affine parameter set – `affine_interval`, `max_scale`, `max_bias`, `pattern`, `affine_seed`, `affine_seed_increment`, `affine_schedule`, and optional `external_mask` gating with `options`/`noise_options`.
 
 #### Ultimate Affine KSampler (No Upscale) - USDU
-Tiled processing without initial upscaling.
+Tiled processing without pre-upscaling.
 
 #### Ultimate Affine KSampler (Custom) - USDU
-Supports custom samplers and sigma schedules.
+Supports custom samplers and sigma schedules via `custom_sampler` and `custom_sigmas` while keeping the same tiling/affine controls.
+
+#### Advanced: Tiled Decode Parameters
+When `tiled_decode` is enabled, you can fine-tune the VAE tiled decode behavior:
+
+- `tiled_tile_size` – Target output tile size (in pixels, pre-compression). Larger is fewer tiles (faster) but higher VRAM peaks.
+- `tiled_overlap` – Output-space overlap (in pixels, pre-compression). Higher overlap improves tile blending but increases work.
+- `tiled_temporal_size` – Temporal window for video decode (frames, pre-compression). 0 disables temporal tiling.
+- `tiled_temporal_overlap` – Temporal overlap in frames (pre-compression). Helps blend across temporal windows.
+
+Notes:
+- Parameters are adjusted automatically using the VAE’s spatial/temporal compression so the decode receives latent-space `tile_x`, `tile_y`, and `overlap`.
+- Sanity checks ensure `overlap <= tile_size/4` and `temporal_overlap <= temporal_size/2`.
+
+#### Batch Join Smoothing and Determinism
+
+- `merge_frames_in_batch` – ComfyUI IMAGE tensors are 4D `[B,H,W,C]` by convention. This option only applies when a decoder returns a temporal IMAGE tensor `[B,F,H,W,C]` (e.g., some tiled temporal VAE decodes). In that case, frames are flattened to `[B*F,H,W,C]` so batches with different frame counts can be concatenated safely. Has no effect for standard 4D images.
+- `overlap_blend_count` / `overlap_blend_curve` – Crossfade the last K images of a batch into the first K of the next batch at concatenation time (no frame drops). Curves: `cosine` (smooth) or `linear`.
+- `deterministic_noise` – Generate local noise with per-item seeds to make results independent of batch size.
+- `global_noise_mode` – Force deterministic noise for the entire run (ignores NOISE input) for strict batching invariance.
 
 ### Pattern Noise Generation
 
