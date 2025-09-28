@@ -26,6 +26,7 @@ Repository = "https://github.com/WASasquatch/was_affine"
 [tool.comfy]
 PublisherId = "was"
 DisplayName = "WAS Affine"
-Icon = "https://raw.githubusercontent.com/WASasquatch/was_affine/main/icon.png"
+Icon = "https://raw.githubusercontent.com/WASasquatch/was_affine/main/logo.png"
 Banner = "https://raw.githubusercontent.com/WASasquatch/was_affine/main/banner.png"
 requires-comfyui = ">=1.0.0"
+
