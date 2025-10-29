@@ -841,12 +841,21 @@ def get_cfg_for_step(cfg_values, step_index, total_steps):
     Returns:
         float: CFG value for the current step
     """
+    # Scalar input: pass through but enforce minimum of 1.0
     if isinstance(cfg_values, (int, float)):
-        return float(cfg_values)
-    
+        try:
+            v = float(cfg_values)
+        except Exception:
+            v = 4.5
+        return max(1.0, v)
+
+    # Sequence input: pick index or repeat the last; do NOT clamp so explicit <1.0 is allowed
     if isinstance(cfg_values, (list, tuple)) and len(cfg_values) > 0:
-        if step_index < len(cfg_values):
-            return float(cfg_values[step_index])
-        else:
-            return float(cfg_values[-1])
+        try:
+            if step_index < len(cfg_values):
+                return float(cfg_values[step_index])
+            else:
+                return float(cfg_values[-1])
+        except Exception:
+            return 4.5
     return 4.5

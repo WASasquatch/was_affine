@@ -1,17 +1,115 @@
 import comfy
 import torch
+import torch.nn.functional as F
 
-from ..modules.utils import get_cfg_for_step
-from ..modules.usdu import _build_sigmas_from_model
+from ..modules.usdu import run_usdu_pipeline
 
 from .affine_nodes import (
     PATTERN_CHOICES_LIST,
-    WASAffineCustomAdvanced,
 )
 
 
-_SEAM_FIX_CHOICES = ["None", "Band Pass", "Half Tile", "Half Tile + Intersections"]
+class WASUltimateCustomAdvancedAffineNoUpscaleLatent:
+    CATEGORY = "latent/sampling"
+    RETURN_TYPES = ("LATENT",)
+    FUNCTION = "upscale"
 
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "latents": ("LATENT", {"tooltip": "Input latents dict with key 'samples'. Supports [B,C,H,W] (images) or [B,C,F,H,W] (video)."}),
+                "model": ("MODEL", {"tooltip": "Diffusion model to sample with."}),
+                "positive": ("CONDITIONING", {"tooltip": "Positive prompt conditioning."}),
+                "negative": ("CONDITIONING", {"tooltip": "Negative prompt conditioning."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for base sampler (noise)."}),
+                "steps": ("INT", {"default": 20, "min": 1, "max": 10000, "step": 1, "tooltip": "Number of denoising steps."}),
+                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Can be a single float value or a per-step list. Short lists repeat last value."}),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"default": "euler", "tooltip": "Base sampler algorithm."}),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"default": "simple", "tooltip": "Scheduler for sigma schedule."}),
+                "denoise": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Denoise fraction (<=1)."}),
+                "affine_interval": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1, "tooltip": "Apply affine every N steps (1 = every step)."}),
+                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Scale at schedule peak: 1 + (max_scale-1)*t."}),
+                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.0001, "tooltip": "Bias at schedule peak: max_bias*t."}),
+                "pattern": (PATTERN_CHOICES_LIST, {"default": "white_noise", "tooltip": "Affine mask pattern."}),
+                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for affine mask generation."}),
+                "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "Increment affine seed after each application (temporal)."}),
+                "affine_schedule": ("DICT", {"tooltip": "WASAffineScheduleOptions dict."}),
+                "batch_size": ("INT", {"default": 16, "min": 1, "max": 4096, "step": 1, "tooltip": "Process the LATENT batch in chunks of this size to reduce peak VRAM."}),
+            },
+            "optional": {
+                "noise": ("NOISE", {"tooltip": "Optional world-aligned noise generator for step 0; if omitted, uses Comfy's default prepare_noise."}),
+                "external_mask": ("IMAGE", {"tooltip": "Optional external mask to gate affine (adapted to latent space internally)."}),
+                "options": ("DICT", {"tooltip": "Base options for Affine (common/full options)."}),
+                "noise_options": ("DICT", {"tooltip": "Pattern-specific overrides layered onto 'options'."}),
+                "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "Temporal behavior of the affine mask for video latents."}),
+                "merge_frames_in_batch": ("BOOLEAN", {"default": True, "tooltip": "If output latent is 5D [B,C,F,H,W], keep frames; concatenation happens along batch automatically."}),
+                "deterministic_noise": ("BOOLEAN", {"default": False, "tooltip": "Generate batching-invariant noise locally using the node's seed; ignores NOISE input when enabled."}),
+                "global_noise_mode": ("BOOLEAN", {"default": False, "tooltip": "Force local deterministic noise for entire run (ignores NOISE input)."}),
+                "verbose": ("BOOLEAN", {"default": False, "tooltip": "Enable detailed logging of shapes and progress for debugging."}),
+            },
+        }
+
+    @classmethod
+    def upscale(
+        cls,
+        latents,
+        model,
+        positive,
+        negative,
+        seed,
+        steps,
+        cfg,
+        sampler_name,
+        scheduler,
+        denoise,
+        affine_interval,
+        max_scale,
+        max_bias,
+        pattern,
+        affine_seed,
+        affine_seed_increment,
+        affine_schedule,
+        batch_size,
+        external_mask=None,
+        options=None,
+        noise_options=None,
+        noise=None,
+        temporal_mode="static",
+        merge_frames_in_batch=True,
+        deterministic_noise=False,
+        global_noise_mode=False,
+        verbose=False,
+    ):
+        return run_usdu_pipeline(
+            latents=latents,
+            model=model,
+            positive=positive,
+            negative=negative,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            denoise=denoise,
+            noise=noise,
+            affine_interval=affine_interval,
+            max_scale=max_scale,
+            max_bias=max_bias,
+            pattern=pattern,
+            affine_seed=affine_seed,
+            affine_seed_increment=affine_seed_increment,
+            affine_schedule=affine_schedule,
+            batch_size=batch_size,
+            external_mask=external_mask,
+            options=options,
+            noise_options=noise_options,
+            temporal_mode=temporal_mode,
+            merge_frames_in_batch=merge_frames_in_batch,
+            deterministic_noise=deterministic_noise,
+            global_noise_mode=global_noise_mode,
+            verbose=verbose,
+        )
 
 class WASUltimateCustomAdvancedAffineNoUpscale:
     CATEGORY = "image/upscaling"
@@ -22,53 +120,41 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "image": ("IMAGE", {"tooltip": "Input image to process (no internal upscale)."}),
+                "image": ("IMAGE", {"tooltip": "Input IMAGE or VIDEO tensor. Supports [B,H,W,C] or [B,F,H,W,C]."}),
                 "model": ("MODEL", {"tooltip": "Diffusion model to sample with."}),
                 "positive": ("CONDITIONING", {"tooltip": "Positive prompt conditioning."}),
                 "negative": ("CONDITIONING", {"tooltip": "Negative prompt conditioning."}),
-                "vae": ("VAE", {"tooltip": "VAE used to encode/decode latent tiles."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for base sampler (noise)."}),
+                "vae": ("VAE", {"tooltip": "VAE used to encode/decode latents during USDU."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for base sampler (noise)."}),
                 "steps": ("INT", {"default": 20, "min": 1, "max": 10000, "step": 1, "tooltip": "Number of denoising steps."}),
-                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Can be a single float value or a list of float values for per-step CFG. If list is shorter than total steps, the last value will be repeated for remaining steps."}),
-                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"tooltip": "Base sampler algorithm."}),
-                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"tooltip": "Scheduler for sigma schedule."}),
+                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Can be a single float or a per-step list (short lists repeat last value)."}),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"default": "euler", "tooltip": "Base sampler algorithm."}),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"default": "simple", "tooltip": "Scheduler for sigma schedule."}),
                 "denoise": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Denoise fraction (<=1)."}),
-                # Tiling
-                "tile_width": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8, "tooltip": "Tile width in pixels."}),
-                "tile_height": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8, "tooltip": "Tile height in pixels."}),
-                "mask_blur": ("INT", {"default": 8, "min": 0, "max": 64, "step": 1, "tooltip": "Mask blur (px) for tile feathering."}),
-                "tile_padding": ("INT", {"default": 32, "min": 0, "max": 8192, "step": 8, "tooltip": "Tile padding/overlap size (px)."}),
-                # Misc
-                "tiled_decode": ("BOOLEAN", {"default": False, "tooltip": "Use ComfyUI's built-in VAE tiled decode (compression-aware). Helps reduce VRAM spikes on large images or video VAEs."}),
-                # Custom sampling inputs
-                "noise": ("NOISE", {"tooltip": "World-aligned noise generator for step 0; zeros for subsequent steps."}),
-                # Affine controls
-                "affine_interval": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1, "tooltip": "Apply affine every N steps (1 = every step)."}),
-                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Scale at schedule peak: 1 + (max_scale-1)*t."}),
-                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.001, "tooltip": "Bias at schedule peak: max_bias*t."}),
-                "pattern": (PATTERN_CHOICES_LIST, {"default": "white_noise", "tooltip": "Affine mask pattern."}),
-                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for affine mask generation."}),
-                "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "Increment affine seed after each application (temporal)."}),
-                "affine_schedule": ("DICT", {"tooltip": "WASAffineScheduleOptions dict."}),
-                # Batching
-                "batch_size": ("INT", {"default": 16, "min": 1, "max": 4096, "step": 1, "tooltip": "Process the IMAGE batch in chunks of this size to reduce peak VRAM. Split along the batch dimension and run encode→sample→decode sequentially."}),
             },
             "optional": {
+                "noise": ("NOISE", {"tooltip": "Optional world-aligned noise generator for step 0; if omitted, uses Comfy's default prepare_noise."}),
                 "external_mask": ("IMAGE", {"tooltip": "Optional external mask to gate affine."}),
                 "options": ("DICT", {"tooltip": "Base options for Affine (common/full options)."}),
                 "noise_options": ("DICT", {"tooltip": "Pattern-specific overrides layered onto 'options'."}),
-                "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "Temporal behavior of the affine mask."}),
-                "merge_frames_in_batch": ("BOOLEAN", {"default": True, "tooltip": "If decoded IMAGE is 5D [B,F,H,W,C], merge F into batch so batches with different frame counts can be concatenated safely."}),
-                "deterministic_noise": ("BOOLEAN", {"default": False, "tooltip": "Generate batching-invariant noise locally using the node's seed; ignores NOISE input when enabled."}),
-                "global_noise_mode": ("BOOLEAN", {"default": False, "tooltip": "Force local deterministic noise for entire run (ignores NOISE input). Ensures batching-invariant noise."}),
-                "overlap_blend_count": ("INT", {"default": 0, "min": 0, "max": 64, "step": 1, "tooltip": "Crossfade this many images between consecutive batches to hide boundary shifts. 0 disables."}),
-                "overlap_blend_curve": (["cosine", "linear"], {"default": "cosine", "tooltip": "Curve for crossfade between batches."}),
-                "verbose": ("BOOLEAN", {"default": False, "tooltip": "Enable detailed logging of shapes, tiles, and progress for debugging."}),
-                # Tiled decode tunables
-                "tiled_tile_size": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8, "tooltip": "Target output tile size in pixels for VAE tiled decode (pre-compression)."}),
-                "tiled_overlap": ("INT", {"default": 64, "min": 0, "max": 1024, "step": 1, "tooltip": "Output-space overlap in pixels for tiled decode (pre-compression)."}),
-                "tiled_temporal_size": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 1, "tooltip": "Temporal window size for video tiled decode (frames, pre-compression). 0 disables temporal tiling."}),
-                "tiled_temporal_overlap": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1, "tooltip": "Temporal overlap for video tiled decode (frames, pre-compression)."}),
+                "affine_interval": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1, "tooltip": "Apply affine every N steps (1 = every step)."}),
+                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Scale at schedule peak: 1 + (max_scale-1)*t."}),
+                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.0001, "tooltip": "Bias at schedule peak: max_bias*t."}),
+                "pattern": (PATTERN_CHOICES_LIST, {"default": "white_noise", "tooltip": "Affine mask pattern."}),
+                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
+                "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "Increment affine seed after each application (temporal)."}),
+                "affine_schedule": ("DICT", {"tooltip": "WASAffineScheduleOptions dict; interpreted over total steps with repeat-last behavior."}),
+                "tile_width": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 16, "tooltip": "IMAGE-space sampling tile width in pixels. 0 disables IMAGE tiling (single pass)."}),
+                "tile_height": ("INT", {"default": 0, "min": 0, "max": 16384, "step": 16, "tooltip": "IMAGE-space sampling tile height in pixels. 0 disables IMAGE tiling (single pass)."}),
+                "tile_overlap": ("INT", {"default": 64, "min": 0, "max": 2048, "step": 1, "tooltip": "IMAGE-space overlap between sampling tiles (pixels)."}),
+                "feather_sigma": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 256.0, "step": 0.5, "tooltip": "Feathering (Gaussian sigma, in pixels) for seam blending during latent accumulation."}),
+                "merge_frames_in_batch": ("BOOLEAN", {"default": True, "tooltip": "If decoded IMAGE is 5D [B,F,H,W,C], merge F into batch for concat."}),
+                "tiled_decode": ("BOOLEAN", {"default": False, "tooltip": "Use VAE tiled decode to reduce VRAM spikes for large outputs/video."}),
+                "tiled_tile_size": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8, "tooltip": "Target output tile size (pixels) for VAE tiled decode."}),
+                "tiled_overlap": ("INT", {"default": 64, "min": 0, "max": 1024, "step": 1, "tooltip": "Output-space overlap (pixels) for tiled decode."}),
+                "tiled_temporal_size": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 1, "tooltip": "Temporal window size (frames) for video tiled decode. 0 disables temporal tiling."}),
+                "tiled_temporal_overlap": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1, "tooltip": "Temporal overlap (frames) for video tiled decode."}),
+                "verbose": ("BOOLEAN", {"default": False, "tooltip": "Enable detailed logging for debugging."}),
             },
         }
 
@@ -86,12 +172,249 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         sampler_name,
         scheduler,
         denoise,
-        tile_width,
-        tile_height,
-        mask_blur,
-        tile_padding,
-        tiled_decode,
-        noise,
+        noise=None,
+        external_mask=None,
+        options=None,
+        noise_options=None,
+        affine_interval=1,
+        max_scale=1.2,
+        max_bias=0.0,
+        pattern="white_noise",
+        affine_seed=0,
+        affine_seed_increment=False,
+        affine_schedule=None,
+        tile_width=0,
+        tile_height=0,
+        tile_overlap=64,
+        feather_sigma=8.0,
+        merge_frames_in_batch=True,
+        tiled_decode=False,
+        tiled_tile_size=512,
+        tiled_overlap=64,
+        tiled_temporal_size=64,
+        tiled_temporal_overlap=8,
+        verbose=False,
+    ):
+        import torch
+        import math
+        is_video = image.dim() == 5
+        if is_video:
+            b, f, h, w, c = image.shape
+        else:
+            b, h, w, c = image.shape
+
+        # If tiling disabled or video input, fall back to single-pass latent sampling
+        if int(tile_width) <= 0 or int(tile_height) <= 0 or is_video:
+            with torch.no_grad():
+                latent = vae.encode(image)
+            lat_dict = latent if isinstance(latent, dict) else {"samples": latent}
+            out_lat, = run_usdu_pipeline(
+                latents=lat_dict,
+                model=model,
+                positive=positive,
+                negative=negative,
+                seed=seed,
+                steps=steps,
+                cfg=cfg,
+                sampler_name=sampler_name,
+                scheduler=scheduler,
+                denoise=denoise,
+                noise=noise,
+                affine_interval=affine_interval,
+                max_scale=max_scale,
+                max_bias=max_bias,
+                pattern=pattern,
+                affine_seed=affine_seed,
+                affine_seed_increment=affine_seed_increment,
+                affine_schedule=affine_schedule if isinstance(affine_schedule, dict) else ({}),
+                batch_size=b,
+                external_mask=external_mask,
+                options=options,
+                noise_options=noise_options,
+                temporal_mode="static",
+                merge_frames_in_batch=merge_frames_in_batch,
+                deterministic_noise=False,
+                global_noise_mode=False,
+                verbose=verbose,
+            )
+            merged_tensor = out_lat["samples"] if isinstance(out_lat, dict) else out_lat
+        else:
+            # IMAGE-space sampling tiling path (4D IMAGE only)
+            tw = max(1, int(tile_width))
+            th = max(1, int(tile_height))
+            ov = max(0, int(tile_overlap))
+            # Determine latent scale from VAE (fallback 8)
+            try:
+                s_comp = int(vae.spacial_compression_decode())
+            except Exception:
+                s_comp = 8
+            # Compute latent mosaic dimensions
+            H_lat = math.ceil(h / s_comp)
+            W_lat = math.ceil(w / s_comp)
+            full_lat = None
+            full_wts = None
+            # Iterate tiles
+            for y0 in range(0, h, th - ov if th - ov > 0 else th):
+                y1 = min(h, y0 + th)
+                if y1 - y0 <= 0:
+                    continue
+                for x0 in range(0, w, tw - ov if tw - ov > 0 else tw):
+                    x1 = min(w, x0 + tw)
+                    if x1 - x0 <= 0:
+                        continue
+                    tile_img = image[:, y0:y1, x0:x1, :]
+                    with torch.no_grad():
+                        lat_tile = vae.encode(tile_img)
+                    lat_tile = lat_tile if isinstance(lat_tile, dict) else {"samples": lat_tile}
+                    lat_samples = lat_tile["samples"]
+                    # Sample this latent tile
+                    out_lat_tile, = run_usdu_pipeline(
+                        latents=lat_tile,
+                        model=model,
+                        positive=positive,
+                        negative=negative,
+                        seed=seed,
+                        steps=steps,
+                        cfg=cfg,
+                        sampler_name=sampler_name,
+                        scheduler=scheduler,
+                        denoise=denoise,
+                        noise=noise,
+                        affine_interval=affine_interval,
+                        max_scale=max_scale,
+                        max_bias=max_bias,
+                        pattern=pattern,
+                        affine_seed=affine_seed,
+                        affine_seed_increment=affine_seed_increment,
+                        affine_schedule=affine_schedule if isinstance(affine_schedule, dict) else ({}),
+                        batch_size=lat_samples.shape[0],
+                        external_mask=external_mask,
+                        options=options,
+                        noise_options=noise_options,
+                        temporal_mode="static",
+                        merge_frames_in_batch=False,
+                        deterministic_noise=False,
+                        global_noise_mode=False,
+                        verbose=verbose,
+                    )
+                    lat_out_tile = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
+                    # Allocate mosaic on first tile
+                    if isinstance(lat_out_tile, torch.Tensor) and lat_out_tile.dim() == 5:
+                        b_tmp, c_tmp, f_tmp, h_tmp, w_tmp = lat_out_tile.shape
+                        lat_out_tile = lat_out_tile.view(b_tmp * f_tmp, c_tmp, h_tmp, w_tmp)
+                    if full_lat is None:
+                        bsz, cL, hL, wL = lat_out_tile.shape
+                        full_lat = torch.zeros((bsz, cL, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
+                        full_wts = torch.zeros((1, 1, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
+                    # Compute latent-space coords and clamp
+                    oy0 = y0 // s_comp
+                    ox0 = x0 // s_comp
+                    hLt, wLt = lat_out_tile.shape[2], lat_out_tile.shape[3]
+                    oy1 = min(oy0 + hLt, H_lat)
+                    ox1 = min(ox0 + wLt, W_lat)
+                    thL = oy1 - oy0
+                    twL = ox1 - ox0
+                    tile_crop = lat_out_tile[:, :, :thL, :twL]
+                    # Build feather weights in latent space
+                    ovL = max(0, ov // s_comp)
+                    ov_h = min(ovL, thL // 2)
+                    ov_w = min(ovL, twL // 2)
+                    wmask = torch.ones((1, 1, thL, twL), device=tile_crop.device, dtype=tile_crop.dtype)
+                    if ov_w > 0:
+                        # Left edge
+                        ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
+                        if ox0 > 0:
+                            wmask[:, :, :, :ov_w] *= ramp
+                        # Right edge
+                        if ox1 < W_lat:
+                            ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
+                            wmask[:, :, :, -ov_w:] *= ramp
+                    if ov_h > 0:
+                        # Top edge
+                        ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
+                        if oy0 > 0:
+                            wmask[:, :, :ov_h, :] *= ramp
+                        # Bottom edge
+                        if oy1 < H_lat:
+                            ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
+                            wmask[:, :, -ov_h:, :] *= ramp
+                    # Accumulate
+                    full_lat[:, :, oy0:oy1, ox0:ox1] += tile_crop * wmask
+                    full_wts[:, :, oy0:oy1, ox0:ox1] += wmask
+            merged_tensor = full_lat / (full_wts + 1e-8)
+        try:
+            t_comp_fn = getattr(vae, "temporal_compression_decode", None)
+            require_5d = False
+            if callable(t_comp_fn):
+                try:
+                    require_5d = t_comp_fn() is not None
+                except Exception:
+                    require_5d = False
+            if isinstance(merged_tensor, torch.Tensor):
+                if merged_tensor.dim() == 4 and require_5d:
+                    merged_tensor = merged_tensor.unsqueeze(2)
+                elif merged_tensor.dim() == 5 and not require_5d:
+                    b0, c0, f0, h0, w0 = merged_tensor.shape
+                    merged_tensor = merged_tensor.reshape(b0 * f0, c0, h0, w0)
+            if tiled_decode:
+                tile_size = int(tiled_tile_size)
+                overlap = int(tiled_overlap)
+                temporal_size = int(tiled_temporal_size)
+                temporal_overlap = int(tiled_temporal_overlap)
+                if tile_size < overlap * 4:
+                    overlap = tile_size // 4
+                t_comp = vae.temporal_compression_decode()
+                if t_comp is not None:
+                    temporal_size_adj = max(2, temporal_size // t_comp)
+                    temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
+                else:
+                    temporal_size_adj = None
+                    temporal_overlap_adj = None
+                s_comp = vae.spacial_compression_decode()
+                tile_x = max(1, tile_size // max(1, s_comp))
+                tile_y = max(1, tile_size // max(1, s_comp))
+                overlap_lat = max(0, overlap // max(1, s_comp))
+                with torch.no_grad():
+                    images = vae.decode_tiled(merged_tensor,
+                                              tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
+                                              tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
+                if isinstance(images, torch.Tensor) and images.dim() == 5:
+                    out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
+                else:
+                    out_img = images
+            else:
+                with torch.no_grad():
+                    out_img = vae.decode(merged_tensor)
+            if merge_frames_in_batch and out_img.dim() == 5:
+                b_out, f_out, h_out, w_out, c_out = out_img.shape
+                out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
+        except Exception as e:
+            raise RuntimeError(f"VAE.decode failed: {e}")
+
+        return (out_img,)
+
+
+class WASUltimateCustomAdvancedAffineCustomLatent(WASUltimateCustomAdvancedAffineNoUpscaleLatent):
+    @classmethod
+    def INPUT_TYPES(cls):
+        base = super().INPUT_TYPES()
+        base["optional"]["custom_sampler"] = ("SAMPLER", {"tooltip": "Optional custom SAMPLER; if provided, used instead of sampler_name."})
+        base["optional"]["custom_sigmas"] = ("SIGMAS", {"tooltip": "Optional custom SIGMAS; if provided, overrides scheduler/steps/denoise."})
+        return base
+
+    @classmethod
+    def upscale(
+        cls,
+        latents,
+        model,
+        positive,
+        negative,
+        seed,
+        steps,
+        cfg,
+        sampler_name,
+        scheduler,
+        denoise,
         affine_interval,
         max_scale,
         max_bias,
@@ -103,317 +426,46 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         external_mask=None,
         options=None,
         noise_options=None,
+        noise=None,
         temporal_mode="static",
+        custom_sampler=None,
+        custom_sigmas=None,
         merge_frames_in_batch=True,
         deterministic_noise=False,
         global_noise_mode=False,
-        overlap_blend_count=0,
-        overlap_blend_curve="cosine",
-        tiled_tile_size=512,
-        tiled_overlap=64,
-        tiled_temporal_size=64,
-        tiled_temporal_overlap=8,
         verbose=False,
     ):
-        def dbg(msg):
-            print(f"[WAS Affine][NoUpscale] {msg}")
-
-        dbg(f"Input IMAGE shape: {tuple(image.shape)}")
-        # Helper: process one image batch through encode -> tiled sampling -> decode
-        def _process_image_batch(img_batch):
-            try:
-                latent_local = vae.encode(img_batch)
-            except Exception as e:
-                raise RuntimeError(f"VAE.encode failed: {e}")
-            return latent_local
-
-        try:
-            g = comfy.samplers.CFGGuider(model)
-            g.set_conds(positive, negative)
-            cfg_value = get_cfg_for_step(cfg, 0, steps)
-            g.set_cfg(cfg_value)
-            sampler_obj = comfy.samplers.sampler_object(sampler_name)
-            sigmas = _build_sigmas_from_model(model, scheduler, int(steps), float(denoise))
-        except Exception as e:
-            raise RuntimeError(f"Failed to prepare sampler: {e}")
-
-        final_images = []
-        ref_out_shape = None
-        total = image.shape[0]
-        bs = max(1, int(batch_size))
-        for b0 in range(0, total, bs):
-            b1 = min(total, b0 + bs)
-            img_batch = image[b0:b1]
-            dbg(f"Batch {b0}:{b1} img_batch shape: {tuple(img_batch.shape)}")
-            latent = _process_image_batch(img_batch)
-            x_full = latent["samples"] if isinstance(latent, dict) else latent
-            dbg(f"Encoded latent shape: {tuple(x_full.shape)} | device: {x_full.device} | dtype: {x_full.dtype}")
-
-            # Align latent device with model_patcher device, matching base node behavior
-            try:
-                mp = getattr(g, 'model_patcher', None)
-                target_device = getattr(mp, 'device', x_full.device) if mp is not None else x_full.device
-            except Exception:
-                target_device = x_full.device
-            if x_full.device != target_device:
-                x_full = x_full.to(target_device)
-                if isinstance(latent, dict):
-                    latent = dict(latent)
-                    latent["samples"] = x_full
-            dbg(f"Latent aligned to device: {x_full.device}")
-            
-            if len(x_full.shape) == 5:
-                b, cL, fL, hL, wL = x_full.shape
-                is_video = True
-            elif len(x_full.shape) == 4:
-                b, cL, hL, wL = x_full.shape
-                is_video = False
-            else:
-                raise ValueError(f"Unsupported latent shape: {x_full.shape}. Expected 4D or 5D tensor.")
-            dbg(f"is_video={is_video}, latent L dims: hL={hL}, wL={wL}{', fL='+str(fL) if is_video else ''}")
-        
-            try:
-                if len(image.shape) == 5 and is_video:
-                    _, _, Hpx, Wpx, _ = image.shape
-                elif len(image.shape) == 4:
-                    _, Hpx, Wpx, _ = image.shape
-                else:
-                    raise ValueError(f"Unsupported image shape: {image.shape}")
-                scale_h = max(1.0, float(Hpx) / float(hL))
-                scale_w = max(1.0, float(Wpx) / float(wL))
-            except Exception:
-                scale_h = scale_w = 8.0
-            dbg(f"Pixel dims: H={Hpx if 'Hpx' in locals() else 'N/A'}, W={Wpx if 'Wpx' in locals() else 'N/A'}, scale_h={scale_h:.3f}, scale_w={scale_w:.3f}")
-
-            def to_lat(v_px: int, scale: float):
-                return max(1, int(round(float(v_px) / scale)))
-
-            twL = to_lat(int(tile_width), scale_w)
-            thL = to_lat(int(tile_height), scale_h)
-            padL = to_lat(int(tile_padding), (scale_h + scale_w) * 0.5)
-            blurL = to_lat(int(mask_blur), (scale_h + scale_w) * 0.5)
-
-            # Generate noise: deterministic local when enabled; else prefer NOISE input, fallback to randn_like
-            if deterministic_noise or global_noise_mode:
-                dbg("Deterministic noise generation enabled (batching-invariant)")
-                gen = torch.Generator(device=x_full.device)
-                bsz = x_full.shape[0]
-                if is_video:
-                    # x_full: [B, C, F, H, W]
-                    _, cL, fL, hL, wL = x_full.shape
-                    full_noise = torch.empty_like(x_full)
-                    for bi in range(bsz):
-                        global_b = b0 + bi
-                        for fi in range(fL):
-                            per_seed = int(seed) + global_b * 1000003 + fi
-                            gen.manual_seed(per_seed)
-                            n = torch.randn((1, cL, 1, hL, wL), device=x_full.device, dtype=x_full.dtype, generator=gen)
-                            full_noise[bi:bi+1, :, fi:fi+1, :, :] = n
-                else:
-                    # x_full: [B, C, H, W]
-                    _, cL, hL, wL = x_full.shape
-                    full_noise = torch.empty_like(x_full)
-                    for bi in range(bsz):
-                        global_b = b0 + bi
-                        per_seed = int(seed) + global_b * 1000003
-                        gen.manual_seed(per_seed)
-                        n = torch.randn((1, cL, hL, wL), device=x_full.device, dtype=x_full.dtype, generator=gen)
-                        full_noise[bi:bi+1, :, :, :] = n
-            else:
-                try:
-                    full_noise = noise.generate_noise(latent)
-                    if isinstance(full_noise, torch.Tensor):
-                        full_noise = full_noise.to(device=x_full.device, dtype=x_full.dtype)
-                    else:
-                        full_noise = torch.randn_like(x_full)
-                except Exception:
-                    full_noise = torch.randn_like(x_full)
-            dbg(f"Noise shape: {tuple(full_noise.shape)}")
-
-            out_acc = torch.zeros_like(x_full)
-            if is_video:
-                w_acc = torch.zeros((b, 1, fL, hL, wL), device=x_full.device, dtype=x_full.dtype)
-            else:
-                w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
-
-            def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
-                HH = yi1 - yi0
-                WW = xi1 - xi0
-                yy = torch.arange(HH, device=x_full.device, dtype=x_full.dtype).view(HH, 1)
-                xx = torch.arange(WW, device=x_full.device, dtype=x_full.dtype).view(1, WW)
-                top = yy.float()
-                left = xx.float()
-                bottom = (HH - 1) - yy.float()
-                right = (WW - 1) - xx.float()
-                d = torch.min(torch.min(top, bottom), torch.min(left, right))
-                ramp = torch.clamp(d / float(max(1, blurL)), 0.0, 1.0)
-                return ramp
-
-            stride_y = max(1, thL - 2 * padL)
-            stride_x = max(1, twL - 2 * padL)
-            dbg(f"Tiling L-space: thL={thL}, twL={twL}, padL={padL}, blurL={blurL}, stride_y={stride_y}, stride_x={stride_x}")
-            for by in range(0, hL, stride_y):
-                for bx in range(0, wL, stride_x):
-                    y0 = max(0, by - padL)
-                    x0 = max(0, bx - padL)
-                    y1 = min(hL, by + thL + padL)
-                    x1 = min(wL, bx + twL + padL)
-                    if (y1 - y0) <= 1 or (x1 - x0) <= 1:
-                        continue
-                    if verbose:
-                        dbg(f"Tile L-range: y={y0}:{y1} x={x0}:{x1}")
-
-                    if is_video:
-                        tile_lat = {"samples": x_full[:, :, :, y0:y1, x0:x1]}
-                    else:
-                        tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
-
-                    class _TileNoise:
-                        def __init__(self, base_noise, y0, y1, x0, x1, is_video):
-                            self.base = base_noise
-                            self.seed = 0
-                            self.y0, self.y1, self.x0, self.x1 = y0, y1, x0, x1
-                            self.is_video = is_video
-
-                        def generate_noise(self, input_latent):
-                            if self.is_video:
-                                return self.base[:, :, :, self.y0:self.y1, self.x0:self.x1]
-                            else:
-                                return self.base[:, :, self.y0:self.y1, self.x0:self.x1]
-
-                    tnoise = _TileNoise(full_noise, y0, y1, x0, x1, is_video)
-
-                    out_lat_tile, _ = WASAffineCustomAdvanced.sample(
-                        tnoise,
-                        g,
-                        sampler_obj,
-                        sigmas,
-                        tile_lat,
-                        affine_interval,
-                        max_scale,
-                        max_bias,
-                        pattern,
-                        affine_seed,
-                        affine_seed_increment,
-                        affine_schedule,
-                        external_mask=external_mask,
-                        options=options,
-                        noise_options=noise_options,
-                        temporal_mode=temporal_mode,
-                        cfg_list=cfg,
-                    )
-                    tile_out = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
-                    tile_out = tile_out.to(device=x_full.device, dtype=x_full.dtype)
-                    if not tile_out.is_contiguous():
-                        tile_out = tile_out.contiguous()
-                    expected_shape = (x_full[:, :, :, y0:y1, x0:x1].shape if is_video else x_full[:, :, y0:y1, x0:x1].shape)
-                    dbg(f"tile_out shape: {tuple(tile_out.shape)} expected: {tuple(expected_shape)}")
-                    # Safety: ensure tile_out matches expected shape
-                    exp = (x_full[:, :, :, y0:y1, x0:x1] if is_video else x_full[:, :, y0:y1, x0:x1])
-                    if tile_out.shape != exp.shape:
-                        raise RuntimeError(f"Affine sample tile_out shape {tuple(tile_out.shape)} does not match expected {tuple(exp.shape)} at y={y0}:{y1}, x={x0}:{x1}")
-
-                    w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)
-                    if is_video:
-                        w2d = w2d.unsqueeze(2)  # Add frame dimension for 5D
-                    w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
-                    
-                    if out_acc.device != x_full.device:
-                        out_acc = out_acc.to(device=x_full.device, dtype=x_full.dtype)
-                    if w_acc.device != x_full.device:
-                        w_acc = w_acc.to(device=x_full.device, dtype=x_full.dtype)
-
-                    if is_video:
-                        out_acc[:, :, :, y0:y1, x0:x1] += tile_out * w2d
-                        w_acc[:, :, :, y0:y1, x0:x1] += w2d
-                    else:
-                        out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
-                        w_acc[:, :, y0:y1, x0:x1] += w2d
-
-            w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
-            merged = out_acc / w_safe
-            merged = torch.where(w_acc > 0, merged, x_full)
-            dbg(f"Merged latent shape: {tuple(merged.shape)}")
-
-            # Explicitly log before decode to show progress and avoid perceived hang
-            dbg(f"Decoding merged latent... shape={tuple(merged.shape)}, device={merged.device}, dtype={merged.dtype}")
-            try:
-                # Use ComfyUI built-in tiled decode if enabled, else direct decode
-                if tiled_decode:
-                    tile_size = int(tiled_tile_size)
-                    overlap = int(tiled_overlap)
-                    temporal_size = int(tiled_temporal_size)
-                    temporal_overlap = int(tiled_temporal_overlap)
-                    # Enforce sane relationships
-                    if tile_size < overlap * 4:
-                        overlap = tile_size // 4
-                    if temporal_size < temporal_overlap * 2:
-                        temporal_overlap = max(1, temporal_overlap // 2)
-                    # Adjust for VAE compression
-                    t_comp = vae.temporal_compression_decode()
-                    if t_comp is not None:
-                        temporal_size_adj = max(2, temporal_size // t_comp)
-                        temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
-                    else:
-                        temporal_size_adj = None
-                        temporal_overlap_adj = None
-                    s_comp = vae.spacial_compression_decode()
-                    tile_x = max(1, tile_size // max(1, s_comp))
-                    tile_y = max(1, tile_size // max(1, s_comp))
-                    overlap_lat = max(0, overlap // max(1, s_comp))
-                    dbg(f"tiled_decode=True -> using vae.decode_tiled(tile={tile_size}, overlap={overlap}, t_size={temporal_size}, t_ov={temporal_overlap}) -> tile_x={tile_x}, tile_y={tile_y}, overlap_lat={overlap_lat}, tile_t={temporal_size_adj}, overlap_t={temporal_overlap_adj}")
-                    images = vae.decode_tiled(merged["samples"] if isinstance(merged, dict) else merged,
-                                              tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
-                                              tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
-                    # images: [B,H,W,C] or [B,F,H,W,C] -> if 5D, combine batches
-                    if isinstance(images, torch.Tensor) and images.dim() == 5:
-                        out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
-                    else:
-                        out_img = images
-                else:
-                    out_img = vae.decode(merged)
-                dbg(f"Decoded out_img shape: {tuple(out_img.shape)}")
-                if merge_frames_in_batch and out_img.dim() == 5:
-                    b_out, f_out, h_out, w_out, c_out = out_img.shape
-                    out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
-                    dbg(f"Merged frames into batch for concat: now {tuple(out_img.shape)}")
-            except Exception as e:
-                raise RuntimeError(f"VAE.decode failed: {e}")
-
-            # Cross-batch overlap blending and shape consistency
-            if ref_out_shape is None:
-                ref_out_shape = tuple(out_img.shape[1:])
-            else:
-                if tuple(out_img.shape[1:]) != ref_out_shape:
-                    raise RuntimeError(
-                        f"Decoded IMAGE shape mismatch across batches: expected * x {ref_out_shape}, got * x {tuple(out_img.shape[1:])}. "
-                        f"Ensure all inputs in the overall IMAGE batch have identical spatial sizes and channels."
-                    )
-                if overlap_blend_count and len(final_images) > 0:
-                    prev = final_images[-1]
-                    curr = out_img
-                    k = min(int(overlap_blend_count), prev.shape[0], curr.shape[0])
-                    if k > 0:
-                        dbg(f"Crossfading at batch join with k={k}, curve={overlap_blend_curve}")
-                        if overlap_blend_curve == "cosine":
-                            import math
-                            alphas = [0.5 - 0.5*math.cos(math.pi*(i+1)/(k+1)) for i in range(k)]
-                        else:
-                            alphas = [(i+1)/(k+1) for i in range(k)]
-                        # Blend last k of prev with first k of curr; keep all frames (no dropping)
-                        for i, a in enumerate(alphas):
-                            idx_prev = prev.shape[0] - k + i
-                            prev[idx_prev] = prev[idx_prev] * (1.0 - a) + curr[i] * a
-                        # Keep current batch frames intact to avoid frame loss
-            final_images.append(out_img)
-
-        # Concatenate all batch outputs along batch dimension
-        if len(final_images) == 1:
-            return (final_images[0],)
-        out_all = torch.cat(final_images, dim=0)
-        dbg(f"Concatenated output shape: {tuple(out_all.shape)} from {len(final_images)} batches")
-        return (out_all,)
-
+        return run_usdu_pipeline(
+            latents=latents,
+            model=model,
+            positive=positive,
+            negative=negative,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            denoise=denoise,
+            noise=noise,
+            affine_interval=affine_interval,
+            max_scale=max_scale,
+            max_bias=max_bias,
+            pattern=pattern,
+            affine_seed=affine_seed,
+            affine_seed_increment=affine_seed_increment,
+            affine_schedule=affine_schedule,
+            batch_size=batch_size,
+            external_mask=external_mask,
+            options=options,
+            noise_options=noise_options,
+            temporal_mode=temporal_mode,
+            merge_frames_in_batch=merge_frames_in_batch,
+            deterministic_noise=deterministic_noise,
+            global_noise_mode=global_noise_mode,
+            verbose=verbose,
+            custom_sampler=custom_sampler,
+            custom_sigmas=custom_sigmas,
+        )
 
 class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUpscale):
     @classmethod
@@ -437,284 +489,277 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         sampler_name,
         scheduler,
         denoise,
-        tile_width,
-        tile_height,
-        mask_blur,
-        tile_padding,
-        tiled_decode,
-        noise,
-        affine_interval,
-        max_scale,
-        max_bias,
-        pattern,
-        affine_seed,
-        affine_seed_increment,
-        affine_schedule,
-        batch_size,
+        noise=None,
         external_mask=None,
         options=None,
         noise_options=None,
-        temporal_mode="static",
-        custom_sampler=None,
-        custom_sigmas=None,
+        affine_interval=1,
+        max_scale=1.2,
+        max_bias=0.0,
+        pattern="white_noise",
+        affine_seed=0,
+        affine_seed_increment=False,
+        affine_schedule=None,
+        tile_width=0,
+        tile_height=0,
+        tile_overlap=64,
+        feather_sigma=8.0,
         merge_frames_in_batch=True,
-        deterministic_noise=False,
-        global_noise_mode=False,
-        overlap_blend_count=0,
-        overlap_blend_curve="cosine",
+        tiled_decode=False,
         tiled_tile_size=512,
         tiled_overlap=64,
         tiled_temporal_size=64,
         tiled_temporal_overlap=8,
         verbose=False,
+        custom_sampler=None,
+        custom_sigmas=None,
     ):
-        def dbg(msg):
-            print(f"[WAS Affine][Custom] {msg}")
-        dbg(f"Input IMAGE shape: {tuple(image.shape)}")
-        try:
-            g = comfy.samplers.CFGGuider(model)
-            g.set_conds(positive, negative)
-            cfg_value = get_cfg_for_step(cfg, 0, steps)
-            g.set_cfg(cfg_value)
-            sampler_obj = custom_sampler if custom_sampler is not None else comfy.samplers.sampler_object(sampler_name)
-            sigmas = custom_sigmas if custom_sigmas is not None else _build_sigmas_from_model(model, scheduler, int(steps), float(denoise))
-        except Exception as e:
-            raise RuntimeError(f"Failed to prepare sampler: {e}")
+        import torch
+        import math
+        is_video = image.dim() == 5
+        if is_video:
+            b, f, h, w, c = image.shape
+        else:
+            b, h, w, c = image.shape
 
-        final_images = []
-        ref_out_shape = None
-        total = image.shape[0]
-        bs = max(1, int(batch_size))
-        for b0 in range(0, total, bs):
-            b1 = min(total, b0 + bs)
-            img_batch = image[b0:b1]
-            dbg(f"Batch {b0}:{b1} img_batch shape: {tuple(img_batch.shape)}")
+        # If tiling disabled or video input, fall back to single-pass latent sampling
+        if int(tile_width) <= 0 or int(tile_height) <= 0 or is_video:
+            with torch.no_grad():
+                latent = vae.encode(image)
+            lat_dict = latent if isinstance(latent, dict) else {"samples": latent}
+            out_lat, = run_usdu_pipeline(
+                latents=lat_dict,
+                model=model,
+                positive=positive,
+                negative=negative,
+                seed=seed,
+                steps=steps,
+                cfg=cfg,
+                sampler_name=sampler_name,
+                scheduler=scheduler,
+                denoise=denoise,
+                noise=noise,
+                affine_interval=affine_interval,
+                max_scale=max_scale,
+                max_bias=max_bias,
+                pattern=pattern,
+                affine_seed=affine_seed,
+                affine_seed_increment=affine_seed_increment,
+                affine_schedule=affine_schedule if isinstance(affine_schedule, dict) else ({}),
+                batch_size=b,
+                external_mask=external_mask,
+                options=options,
+                noise_options=noise_options,
+                temporal_mode="static",
+                merge_frames_in_batch=merge_frames_in_batch,
+                deterministic_noise=False,
+                global_noise_mode=False,
+                verbose=verbose,
+                custom_sampler=custom_sampler,
+                custom_sigmas=custom_sigmas,
+            )
+            merged_tensor = out_lat["samples"] if isinstance(out_lat, dict) else out_lat
+        else:
+            # IMAGE-space sampling tiling path (4D IMAGE only)
+            tw = max(1, int(tile_width))
+            th = max(1, int(tile_height))
+            ov = max(0, int(tile_overlap))
+            # Determine latent scale from VAE (fallback 8)
             try:
-                latent = vae.encode(img_batch)
-            except Exception as e:
-                raise RuntimeError(f"VAE.encode failed: {e}")
-
-            x_full = latent["samples"] if isinstance(latent, dict) else latent
-            dbg(f"Encoded latent shape: {tuple(x_full.shape)} | device: {x_full.device} | dtype: {x_full.dtype}")
-
-            if len(x_full.shape) == 5:
-                b, cL, fL, hL, wL = x_full.shape
-                is_video = True
-            elif len(x_full.shape) == 4:
-                b, cL, hL, wL = x_full.shape
-                is_video = False
-            else:
-                raise ValueError(f"Unsupported latent shape: {x_full.shape}. Expected 4D or 5D tensor.")
-
-            try:
-                if len(img_batch.shape) == 5 and is_video:
-                    _, _, Hpx, Wpx, _ = img_batch.shape
-                elif len(img_batch.shape) == 4:
-                    _, Hpx, Wpx, _ = img_batch.shape
-                else:
-                    raise ValueError(f"Unsupported image shape: {img_batch.shape}")
-                scale_h = max(1.0, float(Hpx) / float(hL))
-                scale_w = max(1.0, float(Wpx) / float(wL))
+                s_comp = int(vae.spacial_compression_decode())
             except Exception:
-                scale_h = scale_w = 8.0
-            dbg(f"Pixel dims: H={Hpx if 'Hpx' in locals() else 'N/A'}, W={Wpx if 'Wpx' in locals() else 'N/A'}, scale_h={scale_h:.3f}, scale_w={scale_w:.3f}")
-
-            def to_lat(v_px: int, scale: float):
-                return max(1, int(round(float(v_px) / scale)))
-
-            twL = to_lat(int(tile_width), scale_w)
-            thL = to_lat(int(tile_height), scale_h)
-            padL = to_lat(int(tile_padding), (scale_h + scale_w) * 0.5)
-            blurL = to_lat(int(mask_blur), (scale_h + scale_w) * 0.5)
-
-            try:
-                full_noise = noise.generate_noise(latent)
-                if isinstance(full_noise, torch.Tensor):
-                    full_noise = full_noise.to(device=x_full.device, dtype=x_full.dtype)
-                else:
-                    full_noise = torch.zeros_like(x_full)
-            except Exception:
-                full_noise = torch.zeros_like(x_full)
-
-            out_acc = torch.zeros_like(x_full)
-            if is_video:
-                w_acc = torch.zeros((b, 1, fL, hL, wL), device=x_full.device, dtype=x_full.dtype)
-            else:
-                w_acc = torch.zeros((b, 1, hL, wL), device=x_full.device, dtype=x_full.dtype)
-
-            def feather_mask(h: int, w: int, yi0: int, yi1: int, xi0: int, xi1: int):
-                HH = yi1 - yi0
-                WW = xi1 - xi0
-                yy = torch.arange(HH, device=x_full.device, dtype=x_full.dtype).view(HH, 1)
-                xx = torch.arange(WW, device=x_full.device, dtype=x_full.dtype).view(1, WW)
-                top = yy.float()
-                left = xx.float()
-                bottom = (HH - 1) - yy.float()
-                right = (WW - 1) - xx.float()
-                d = torch.min(torch.min(top, bottom), torch.min(left, right))
-                ramp = torch.clamp(d / float(max(1, blurL)), 0.0, 1.0)
-                return ramp
-
-            stride_y = max(1, thL - 2 * padL)
-            stride_x = max(1, twL - 2 * padL)
-            for by in range(0, hL, stride_y):
-                for bx in range(0, wL, stride_x):
-                    y0 = max(0, by - padL)
-                    x0 = max(0, bx - padL)
-                    y1 = min(hL, by + thL + padL)
-                    x1 = min(wL, bx + twL + padL)
-                    if (y1 - y0) <= 1 or (x1 - x0) <= 1:
+                s_comp = 8
+            # Compute latent mosaic dimensions
+            H_lat = math.ceil(h / s_comp)
+            W_lat = math.ceil(w / s_comp)
+            full_lat = None
+            full_wts = None
+            # Iterate tiles
+            for y0 in range(0, h, th - ov if th - ov > 0 else th):
+                y1 = min(h, y0 + th)
+                if y1 - y0 <= 0:
+                    continue
+                for x0 in range(0, w, tw - ov if tw - ov > 0 else tw):
+                    x1 = min(w, x0 + tw)
+                    if x1 - x0 <= 0:
                         continue
-
-                    if is_video:
-                        tile_lat = {"samples": x_full[:, :, :, y0:y1, x0:x1]}
-                    else:
-                        tile_lat = {"samples": x_full[:, :, y0:y1, x0:x1]}
-
-                    class _TileNoise:
-                        def __init__(self, base_noise, y0, y1, x0, x1, is_video):
-                            self.base = base_noise
-                            self.seed = 0
-                            self.y0, self.y1, self.x0, self.x1 = y0, y1, x0, x1
-                            self.is_video = is_video
-
-                        def generate_noise(self, input_latent):
-                            if self.is_video:
-                                return self.base[:, :, :, self.y0:self.y1, self.x0:self.x1]
-                            else:
-                                return self.base[:, :, self.y0:self.y1, self.x0:self.x1]
-
-                    tnoise = _TileNoise(full_noise, y0, y1, x0, x1, is_video)
-
-                    out_lat_tile, _ = WASAffineCustomAdvanced.sample(
-                        tnoise,
-                        g,
-                        sampler_obj,
-                        sigmas,
-                        tile_lat,
-                        affine_interval,
-                        max_scale,
-                        max_bias,
-                        pattern,
-                        affine_seed,
-                        affine_seed_increment,
-                        affine_schedule,
+                    tile_img = image[:, y0:y1, x0:x1, :]
+                    with torch.no_grad():
+                        lat_tile = vae.encode(tile_img)
+                    lat_tile = lat_tile if isinstance(lat_tile, dict) else {"samples": lat_tile}
+                    lat_samples = lat_tile["samples"]
+                    # Sample this latent tile
+                    out_lat_tile, = run_usdu_pipeline(
+                        latents=lat_tile,
+                        model=model,
+                        positive=positive,
+                        negative=negative,
+                        seed=seed,
+                        steps=steps,
+                        cfg=cfg,
+                        sampler_name=sampler_name,
+                        scheduler=scheduler,
+                        denoise=denoise,
+                        noise=noise,
+                        affine_interval=affine_interval,
+                        max_scale=max_scale,
+                        max_bias=max_bias,
+                        pattern=pattern,
+                        affine_seed=affine_seed,
+                        affine_seed_increment=affine_seed_increment,
+                        affine_schedule=affine_schedule if isinstance(affine_schedule, dict) else ({}),
+                        batch_size=lat_samples.shape[0],
                         external_mask=external_mask,
                         options=options,
                         noise_options=noise_options,
-                        temporal_mode=temporal_mode,
-                        cfg_list=cfg,
+                        temporal_mode="static",
+                        merge_frames_in_batch=False,
+                        deterministic_noise=False,
+                        global_noise_mode=False,
+                        verbose=verbose,
+                        custom_sampler=custom_sampler,
+                        custom_sigmas=custom_sigmas,
                     )
-                    tile_out = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
+                    lat_out_tile = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
+                    # Allocate mosaic on first tile
+                    # Flatten potential temporal dimension into batch if present
+                    if isinstance(lat_out_tile, torch.Tensor) and lat_out_tile.dim() == 5:
+                        b_tmp, c_tmp, f_tmp, h_tmp, w_tmp = lat_out_tile.shape
+                        lat_out_tile = lat_out_tile.view(b_tmp * f_tmp, c_tmp, h_tmp, w_tmp)
+                    if full_lat is None:
+                        bsz, cL, hL, wL = lat_out_tile.shape
+                        full_lat = torch.zeros((bsz, cL, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
+                        full_wts = torch.zeros((1, 1, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
+                    # Compute latent-space coords and clamp
+                    oy0 = y0 // s_comp
+                    ox0 = x0 // s_comp
+                    hLt, wLt = lat_out_tile.shape[2], lat_out_tile.shape[3]
+                    oy1 = min(oy0 + hLt, H_lat)
+                    ox1 = min(ox0 + wLt, W_lat)
+                    thL = oy1 - oy0
+                    twL = ox1 - ox0
+                    tile_crop = lat_out_tile[:, :, :thL, :twL]
+                    # Build feather weights in latent space
+                    ovL = max(0, ov // s_comp)
+                    ov_h = min(ovL, thL // 2)
+                    ov_w = min(ovL, twL // 2)
+                    wmask = torch.ones((1, 1, thL, twL), device=tile_crop.device, dtype=tile_crop.dtype)
+                    if ov_w > 0:
+                        # Left edge
+                        ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
+                        if ox0 > 0:
+                            wmask[:, :, :, :ov_w] *= ramp
+                        # Right edge
+                        if ox1 < W_lat:
+                            ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
+                            wmask[:, :, :, -ov_w:] *= ramp
+                    if ov_h > 0:
+                        # Top edge
+                        ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
+                        if oy0 > 0:
+                            wmask[:, :, :ov_h, :] *= ramp
+                        # Bottom edge
+                        if oy1 < H_lat:
+                            ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
+                            wmask[:, :, -ov_h:, :] *= ramp
+                    # Accumulate
+                    full_lat[:, :, oy0:oy1, ox0:ox1] += tile_crop * wmask
+                    full_wts[:, :, oy0:oy1, ox0:ox1] += wmask
+            merged_tensor = full_lat / (full_wts + 1e-8)
 
-                    tile_out = tile_out.to(device=x_full.device, dtype=x_full.dtype)
-                    if not tile_out.is_contiguous():
-                        tile_out = tile_out.contiguous()
-                    if verbose:
-                        expected_shape = (x_full[:, :, :, y0:y1, x0:x1].shape if is_video else x_full[:, :, y0:y1, x0:x1].shape)
-                        dbg(f"tile_out shape: {tuple(tile_out.shape)} expected: {tuple(expected_shape)}")
-                    # Safety: ensure tile_out matches expected shape
-                    exp = (x_full[:, :, :, y0:y1, x0:x1] if is_video else x_full[:, :, y0:y1, x0:x1])
-                    if tile_out.shape != exp.shape:
-                        raise RuntimeError(f"Affine sample tile_out shape {tuple(tile_out.shape)} does not match expected {tuple(exp.shape)} at y={y0}:{y1}, x={x0}:{x1}")
-
-                    w2d = feather_mask(hL, wL, y0, y1, x0, x1).unsqueeze(0).unsqueeze(0)
-                    if is_video:
-                        w2d = w2d.unsqueeze(2)  # Add frame dimension for 5D
-                    w2d = w2d.to(device=x_full.device, dtype=x_full.dtype)
-
-                    if out_acc.device != x_full.device:
-                        out_acc = out_acc.to(device=x_full.device, dtype=x_full.dtype)
-                    if w_acc.device != x_full.device:
-                        w_acc = w_acc.to(device=x_full.device, dtype=x_full.dtype)
-
-                    if is_video:
-                        out_acc[:, :, :, y0:y1, x0:x1] += tile_out * w2d
-                        w_acc[:, :, :, y0:y1, x0:x1] += w2d
-                    else:
-                        out_acc[:, :, y0:y1, x0:x1] += tile_out * w2d
-                        w_acc[:, :, y0:y1, x0:x1] += w2d
-
-            w_safe = torch.where(w_acc > 0, w_acc, torch.ones_like(w_acc))
-            merged = out_acc / w_safe
-            merged = torch.where(w_acc > 0, merged, x_full)
-
-            dbg(f"Decoding merged latent... shape={tuple(merged.shape)}, device={merged.device}, dtype={merged.dtype}")
-            try:
-                # Use ComfyUI built-in tiled decode if enabled, else direct decode
-                if tiled_decode:
-                    tile_size = 512
-                    overlap = 64
-                    temporal_size = 64
-                    temporal_overlap = 8
-                    if tile_size < overlap * 4:
-                        overlap = tile_size // 4
-                    if temporal_size < temporal_overlap * 2:
-                        temporal_overlap = max(1, temporal_overlap // 2)
-                    t_comp = vae.temporal_compression_decode()
-                    if t_comp is not None:
-                        temporal_size_adj = max(2, temporal_size // t_comp)
-                        temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
-                    else:
-                        temporal_size_adj = None
-                        temporal_overlap_adj = None
-                    s_comp = vae.spacial_compression_decode()
-                    tile_x = max(1, tile_size // max(1, s_comp))
-                    tile_y = max(1, tile_size // max(1, s_comp))
-                    overlap_lat = max(0, overlap // max(1, s_comp))
-                    dbg(f"tiled_decode=True -> using vae.decode_tiled(tile={tile_size}, overlap={overlap}, t_size={temporal_size}, t_ov={temporal_overlap}) -> tile_x={tile_x}, tile_y={tile_y}, overlap_lat={overlap_lat}, tile_t={temporal_size_adj}, overlap_t={temporal_overlap_adj}")
-                    images = vae.decode_tiled(merged["samples"] if isinstance(merged, dict) else merged,
+        # Decode merged latent tensor
+        try:
+            t_comp_fn = getattr(vae, "temporal_compression_decode", None)
+            require_5d = False
+            if callable(t_comp_fn):
+                try:
+                    require_5d = t_comp_fn() is not None
+                except Exception:
+                    require_5d = False
+            if isinstance(merged_tensor, torch.Tensor):
+                if merged_tensor.dim() == 4 and require_5d:
+                    merged_tensor = merged_tensor.unsqueeze(2)
+                elif merged_tensor.dim() == 5 and not require_5d:
+                    b0, c0, f0, h0, w0 = merged_tensor.shape
+                    merged_tensor = merged_tensor.reshape(b0 * f0, c0, h0, w0)
+            if tiled_decode:
+                tile_size = int(tiled_tile_size)
+                overlap = int(tiled_overlap)
+                temporal_size = int(tiled_temporal_size)
+                temporal_overlap = int(tiled_temporal_overlap)
+                if tile_size < overlap * 4:
+                    overlap = tile_size // 4
+                t_comp = vae.temporal_compression_decode()
+                if t_comp is not None:
+                    temporal_size_adj = max(2, temporal_size // t_comp)
+                    temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
+                else:
+                    temporal_size_adj = None
+                    temporal_overlap_adj = None
+                s_comp = vae.spacial_compression_decode()
+                tile_x = max(1, tile_size // max(1, s_comp))
+                tile_y = max(1, tile_size // max(1, s_comp))
+                overlap_lat = max(0, overlap // max(1, s_comp))
+                with torch.no_grad():
+                    images = vae.decode_tiled(merged_tensor,
                                               tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
                                               tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
-                    if isinstance(images, torch.Tensor) and images.dim() == 5:
-                        out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
-                    else:
-                        out_img = images
+                if isinstance(images, torch.Tensor) and images.dim() == 5:
+                    out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
                 else:
-                    out_img = vae.decode(merged)
-                dbg(f"Decoded out_img shape: {tuple(out_img.shape)}")
-            except Exception as e:
-                raise RuntimeError(f"VAE.decode failed: {e}")
-
-            # Cross-batch overlap blending and shape consistency
-            if ref_out_shape is None:
-                ref_out_shape = tuple(out_img.shape[1:])
+                    out_img = images
             else:
-                if tuple(out_img.shape[1:]) != ref_out_shape:
-                    raise RuntimeError(
-                        f"Decoded IMAGE shape mismatch across batches: expected * x {ref_out_shape}, got * x {tuple(out_img.shape[1:])}. "
-                        f"Ensure all inputs in the overall IMAGE batch have identical spatial sizes and channels."
-                    )
-                if overlap_blend_count and len(final_images) > 0:
-                    prev = final_images[-1]
-                    curr = out_img
-                    k = min(int(overlap_blend_count), prev.shape[0], curr.shape[0])
-                    if k > 0:
-                        dbg(f"Crossfading at batch join with k={k}, curve={overlap_blend_curve}")
-                        if overlap_blend_curve == "cosine":
-                            import math
-                            alphas = [0.5 - 0.5*math.cos(math.pi*(i+1)/(k+1)) for i in range(k)]
-                        else:
-                            alphas = [(i+1)/(k+1) for i in range(k)]
-                        for i, a in enumerate(alphas):
-                            idx_prev = prev.shape[0] - k + i
-                            prev[idx_prev] = prev[idx_prev] * (1.0 - a) + curr[i] * a
-                        # Keep current batch frames intact to avoid frame loss
-            final_images.append(out_img)
+                with torch.no_grad():
+                    out_img = vae.decode(merged_tensor)
+            if merge_frames_in_batch and out_img.dim() == 5:
+                b_out, f_out, h_out, w_out, c_out = out_img.shape
+                out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
+        except Exception as e:
+            raise RuntimeError(f"VAE.decode failed: {e}")
 
-        if len(final_images) == 1:
-            return (final_images[0],)
-        out_all = torch.cat(final_images, dim=0)
-        return (out_all,)
+        return (out_img,)
 
 
-class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
+class WASUltimateCustomAdvancedAffine:
+    CATEGORY = "image/upscaling"
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "upscale"
+
     @classmethod
     def INPUT_TYPES(cls):
-        base = super().INPUT_TYPES()
-        base["required"]["upscale_model"] = ("UPSCALE_MODEL", {"tooltip": "Upscale model to use for pre-upscaling the image before tiling."})
-        base["required"]["upscale_factor"] = ("FLOAT", {"default": 2.0, "min": 1.0, "max": 8.0, "step": 0.1, "tooltip": "Target upscale factor. Image will be rescaled to this size regardless of model's native scale."})
-        return base
+        return {
+            "required": {
+                "image": ("IMAGE", {"tooltip": "Input IMAGE or VIDEO tensor. Supports [B,H,W,C] or [B,F,H,W,C]."}),
+                "model": ("MODEL", {"tooltip": "Diffusion model to sample with."}),
+                "positive": ("CONDITIONING", {"tooltip": "Positive prompt conditioning."}),
+                "negative": ("CONDITIONING", {"tooltip": "Negative prompt conditioning."}),
+                "vae": ("VAE", {"tooltip": "VAE used to encode/decode latents during USDU."}),
+                "upscale_model": ("UPSCALE_MODEL", {"tooltip": "Optional image-space upscaler model (e.g., ESRGAN/RealESRGAN)."}),
+                "upscale_factor": ("FLOAT", {"default": 2.0, "min": 1.0, "max": 8.0, "step": 0.1, "tooltip": "Image-space upscale factor before USDU."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for base sampler (noise)."}),
+                "steps": ("INT", {"default": 20, "min": 1, "max": 10000, "step": 1, "tooltip": "Number of denoising steps."}),
+                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Can be a single float or a per-step list (short lists repeat last value)."}),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"default": "euler", "tooltip": "Base sampler algorithm."}),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"default": "simple", "tooltip": "Scheduler for sigma schedule."}),
+                "denoise": ("FLOAT", {"default": 0.2, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Denoise fraction (<=1)."}),
+                "tiled_decode": ("BOOLEAN", {"default": False, "tooltip": "Use VAE tiled decode to reduce VRAM spikes for large outputs/video."}),
+            },
+            "optional": {
+                "noise": ("NOISE", {"tooltip": "Optional world-aligned noise generator for step 0; if omitted, uses Comfy's default prepare_noise."}),
+                "external_mask": ("IMAGE", {"tooltip": "Optional external mask to gate affine."}),
+                "options": ("DICT", {"tooltip": "Base options for Affine (common/full options)."}),
+                "noise_options": ("DICT", {"tooltip": "Pattern-specific overrides layered onto 'options'."}),
+                "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "Temporal behavior of the affine mask."}),
+                "merge_frames_in_batch": ("BOOLEAN", {"default": True, "tooltip": "If decoded IMAGE is 5D [B,F,H,W,C], merge F into batch for concat."}),
+                "deterministic_noise": ("BOOLEAN", {"default": False, "tooltip": "Generate batching-invariant noise locally using the node's seed; ignores NOISE input when enabled."}),
+                "global_noise_mode": ("BOOLEAN", {"default": False, "tooltip": "Force local deterministic noise for entire run (ignores NOISE input)."}),
+                "tiled_tile_size": ("INT", {"default": 512, "min": 64, "max": 8192, "step": 8, "tooltip": "Target output tile size (pixels) for VAE tiled decode."}),
+                "tiled_overlap": ("INT", {"default": 64, "min": 0, "max": 1024, "step": 1, "tooltip": "Output-space overlap (pixels) for tiled decode."}),
+                "tiled_temporal_size": ("INT", {"default": 64, "min": 0, "max": 4096, "step": 1, "tooltip": "Temporal window size (frames) for video tiled decode. 0 disables temporal tiling."}),
+                "tiled_temporal_overlap": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1, "tooltip": "Temporal overlap (frames) for video tiled decode."}),
+                "verbose": ("BOOLEAN", {"default": False, "tooltip": "Enable detailed logging for debugging."}),
+            },
+        }
 
     @classmethod
     def upscale(
@@ -732,12 +777,7 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
         sampler_name,
         scheduler,
         denoise,
-        tile_width,
-        tile_height,
-        mask_blur,
-        tile_padding,
         tiled_decode,
-        noise,
         affine_interval,
         max_scale,
         max_bias,
@@ -749,133 +789,85 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
         external_mask=None,
         options=None,
         noise_options=None,
+        noise=None,
         temporal_mode="static",
         merge_frames_in_batch=True,
         deterministic_noise=False,
         global_noise_mode=False,
-        overlap_blend_count=0,
-        overlap_blend_curve="cosine",
         tiled_tile_size=512,
         tiled_overlap=64,
         tiled_temporal_size=64,
         tiled_temporal_overlap=8,
         verbose=False,
     ):
-        print(f"[WAS Affine] Upscaling image to {upscale_factor}x...")
-        
-        import torch.nn.functional as F
-        
         is_video = image.dim() == 5
-        
         if is_video:
             b, f, h, w, c = image.shape
-            print(f"[WAS Affine] Processing video with {f} frames at {h}x{w}")
             new_h = int(h * upscale_factor)
             new_w = int(w * upscale_factor)
-            
             try:
                 from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel
                 upscaler = ImageUpscaleWithModel()
-                
                 upscaled_frames = []
                 for frame_idx in range(f):
                     frame = image[:, frame_idx]
-                    model_upscaled_frame = upscaler.upscale(upscale_model, frame)[0]
-                    
-                    if model_upscaled_frame.shape[1] != new_h or model_upscaled_frame.shape[2] != new_w:
-                        frame_tensor = model_upscaled_frame.permute(0, 3, 1, 2)
-                        frame_tensor = F.interpolate(
-                            frame_tensor,
-                            size=(new_h, new_w),
-                            mode='bilinear',
-                            align_corners=False
-                        )
-                        model_upscaled_frame = frame_tensor.permute(0, 2, 3, 1)
-                    
-                    upscaled_frames.append(model_upscaled_frame)
-                
+                    model_up = upscaler.upscale(upscale_model, frame)[0]
+                    if model_up.shape[1] != new_h or model_up.shape[2] != new_w:
+                        t = model_up.permute(0, 3, 1, 2)
+                        t = F.interpolate(t, size=(new_h, new_w), mode='bilinear', align_corners=False)
+                        model_up = t.permute(0, 2, 3, 1)
+                    upscaled_frames.append(model_up)
                 upscaled_image = torch.stack(upscaled_frames, dim=1)
-                
-            except ImportError:
-                print(f"[WAS Affine] ImageUpscaleWithModel not available, using bilinear rescaling for video")
+            except Exception:
                 img_reshaped = image.view(b * f, h, w, c)
-                img_tensor = img_reshaped.permute(0, 3, 1, 2)
-                
-                upscaled_tensor = F.interpolate(
-                    img_tensor,
-                    size=(new_h, new_w),
-                    mode='bilinear',
-                    align_corners=False
-                )
-                
-                upscaled_reshaped = upscaled_tensor.permute(0, 2, 3, 1)
-                upscaled_image = upscaled_reshaped.view(b, f, new_h, new_w, c)
-            
-            print(f"[WAS Affine] Video upscaled: {h}x{w} -> {new_h}x{new_w} ({upscale_factor}x, {f} frames)")
-            
+                t = img_reshaped.permute(0, 3, 1, 2)
+                t = F.interpolate(t, size=(new_h, new_w), mode='bilinear', align_corners=False)
+                upscaled_image = t.permute(0, 2, 3, 1).view(b, f, new_h, new_w, c)
         else:
-            img_tensor = image.permute(0, 3, 1, 2)
-            b, c, h, w = img_tensor.shape
+            b, h, w, c = image.shape
             new_h = int(h * upscale_factor)
             new_w = int(w * upscale_factor)
-            
             try:
                 from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel
                 upscaler = ImageUpscaleWithModel()
-                model_upscaled = upscaler.upscale(upscale_model, image)[0]
-                model_tensor = model_upscaled.permute(0, 3, 1, 2)
-                mb, mc, mh, mw = model_tensor.shape
-                
-                if mh != new_h or mw != new_w:
-                    print(f"[WAS Affine] Model upscaled to {mh}x{mw}, rescaling to target {new_h}x{new_w}")
-                    upscaled_tensor = F.interpolate(
-                        model_tensor,
-                        size=(new_h, new_w),
-                        mode='bilinear',
-                        align_corners=False
-                    )
-                    upscaled_image = upscaled_tensor.permute(0, 2, 3, 1)
-                else:
-                    upscaled_image = model_upscaled
-                    
-            except ImportError:
-                print(f"[WAS Affine] ImageUpscaleWithModel not available, using bilinear rescaling to {upscale_factor}x")
-                upscaled_tensor = F.interpolate(
-                    img_tensor, 
-                    size=(new_h, new_w), 
-                    mode='bilinear', 
-                    align_corners=False
-                )
-                upscaled_image = upscaled_tensor.permute(0, 2, 3, 1)
-            
-            print(f"[WAS Affine] Image upscaled: {h}x{w} -> {new_h}x{new_w} ({upscale_factor}x)")
-        
-        return super().upscale(
-            upscaled_image,
-            model,
-            positive,
-            negative,
-            vae,
-            seed,
-            steps,
-            cfg,
-            sampler_name,
-            scheduler,
-            denoise,
-            tile_width,
-            tile_height,
-            mask_blur,
-            tile_padding,
-            tiled_decode,
-            noise,
-            affine_interval,
-            max_scale,
-            max_bias,
-            pattern,
-            affine_seed,
-            affine_seed_increment,
-            affine_schedule,
-            batch_size,
+                model_up = upscaler.upscale(upscale_model, image)[0]
+                if model_up.shape[1] != new_h or model_up.shape[2] != new_w:
+                    t = model_up.permute(0, 3, 1, 2)
+                    t = F.interpolate(t, size=(new_h, new_w), mode='bilinear', align_corners=False)
+                    model_up = t.permute(0, 2, 3, 1)
+                upscaled_image = model_up
+            except Exception:
+                t = image.permute(0, 3, 1, 2)
+                t = F.interpolate(t, size=(new_h, new_w), mode='bilinear', align_corners=False)
+                upscaled_image = t.permute(0, 2, 3, 1)
+
+        if verbose:
+            print(f"[WAS Affine][Ultimate] Upscaled IMAGE to {new_h}x{new_w}")
+
+        with torch.no_grad():
+            latent = vae.encode(upscaled_image)
+        lat_dict = latent if isinstance(latent, dict) else {"samples": latent}
+
+        out_lat, = run_usdu_pipeline(
+            latents=lat_dict,
+            model=model,
+            positive=positive,
+            negative=negative,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+            sampler_name=sampler_name,
+            scheduler=scheduler,
+            denoise=denoise,
+            noise=noise,
+            affine_interval=affine_interval,
+            max_scale=max_scale,
+            max_bias=max_bias,
+            pattern=pattern,
+            affine_seed=affine_seed,
+            affine_seed_increment=affine_seed_increment,
+            affine_schedule=affine_schedule,
+            batch_size=batch_size,
             external_mask=external_mask,
             options=options,
             noise_options=noise_options,
@@ -883,23 +875,65 @@ class WASUltimateCustomAdvancedAffine(WASUltimateCustomAdvancedAffineNoUpscale):
             merge_frames_in_batch=merge_frames_in_batch,
             deterministic_noise=deterministic_noise,
             global_noise_mode=global_noise_mode,
-            overlap_blend_count=overlap_blend_count,
-            overlap_blend_curve=overlap_blend_curve,
-            tiled_tile_size=tiled_tile_size,
-            tiled_overlap=tiled_overlap,
-            tiled_temporal_size=tiled_temporal_size,
-            tiled_temporal_overlap=tiled_temporal_overlap,
             verbose=verbose,
         )
 
+        merged_tensor = out_lat["samples"] if isinstance(out_lat, dict) else out_lat
+        if verbose:
+            print(f"[WAS Affine][Ultimate] Decoding output latents shape: {tuple(merged_tensor.shape)}")
+
+        try:
+            if tiled_decode:
+                tile_size = int(tiled_tile_size)
+                overlap = int(tiled_overlap)
+                temporal_size = int(tiled_temporal_size)
+                temporal_overlap = int(tiled_temporal_overlap)
+                if tile_size < overlap * 4:
+                    overlap = tile_size // 4
+                if temporal_size < temporal_overlap * 2:
+                    temporal_overlap = max(1, temporal_overlap // 2)
+                t_comp = vae.temporal_compression_decode()
+                if t_comp is not None:
+                    temporal_size_adj = max(2, temporal_size // t_comp)
+                    temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
+                else:
+                    temporal_size_adj = None
+                    temporal_overlap_adj = None
+                s_comp = vae.spacial_compression_decode()
+                tile_x = max(1, tile_size // max(1, s_comp))
+                tile_y = max(1, tile_size // max(1, s_comp))
+                overlap_lat = max(0, overlap // max(1, s_comp))
+                with torch.no_grad():
+                    images = vae.decode_tiled(merged_tensor,
+                                              tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
+                                              tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
+                if isinstance(images, torch.Tensor) and images.dim() == 5:
+                    out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
+                else:
+                    out_img = images
+            else:
+                with torch.no_grad():
+                    out_img = vae.decode(merged_tensor)
+            if merge_frames_in_batch and out_img.dim() == 5:
+                b_out, f_out, h_out, w_out, c_out = out_img.shape
+                out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
+        except Exception as e:
+            raise RuntimeError(f"VAE.decode failed: {e}")
+
+        return (out_img,)
+
 
 NODE_CLASS_MAPPINGS = {
+    "WASUltimateCustomAdvancedAffineNoUpscaleLatent": WASUltimateCustomAdvancedAffineNoUpscaleLatent,
+    "WASUltimateCustomAdvancedAffineCustomLatent": WASUltimateCustomAdvancedAffineCustomLatent,
     "WASUltimateCustomAdvancedAffineNoUpscale": WASUltimateCustomAdvancedAffineNoUpscale,
     "WASUltimateCustomAdvancedAffineCustom": WASUltimateCustomAdvancedAffineCustom,
     "WASUltimateCustomAdvancedAffine": WASUltimateCustomAdvancedAffine,
 }
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "WASUltimateCustomAdvancedAffineNoUpscale": "Affine KSampler (No Upscale)",
-    "WASUltimateCustomAdvancedAffineCustom": "Affine KSampler (Custom)",
-    "WASUltimateCustomAdvancedAffine": "Affine KSampler",
+    "WASUltimateCustomAdvancedAffineNoUpscaleLatent": "Ultimate Affine KSampler [Latent] (No Upscale)",
+    "WASUltimateCustomAdvancedAffineCustomLatent": "Ultimate Affine KSampler [Latent] (Custom)",
+    "WASUltimateCustomAdvancedAffineNoUpscale": "Ultimate Affine KSampler (No Upscale)",
+    "WASUltimateCustomAdvancedAffineCustom": "Ultimate Affine KSampler (Custom)",
+    "WASUltimateCustomAdvancedAffine": "Ultimate Affine KSampler",
 }

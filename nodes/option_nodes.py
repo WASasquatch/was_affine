@@ -7,8 +7,8 @@ class WASLatentAffineOptions:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mask_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Scales mask intensity before applying scale/bias. Examples: 0.5 = weaker effect, 1.0 = normal, 2.0 = strong. Influence: higher values increase the contribution of the mask to scaling and bias."}),
-                "threshold": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Binarize mask if > 0. Converts mask to 0/1 using this threshold. Examples: 0.5 creates hard separation. Influence: higher threshold produces larger black areas; lower produces larger white areas."}),
+                "mask_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Scales mask intensity before applying scale/bias. Examples: 0.5 = weaker effect, 1.0 = normal, 2.0 = strong. Influence: higher values increase the contribution of the mask to scaling and bias."}),
+                "threshold": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.0001, "tooltip": "Binarize mask if > 0. Converts mask to 0/1 using this threshold. Examples: 0.5 creates hard separation. Influence: higher threshold produces larger black areas; lower produces larger white areas."}),
                 "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "Invert the mask after threshold/blur. Examples: True flips dark/bright regions. Influence: swaps where scale/bias are applied."}),
                 "perlin_scale": ("FLOAT", {"default": 64.0, "min": 4.0, "max": 1024.0, "step": 1.0, "tooltip": "Controls Perlin noise frequency. Examples: 32 = coarse blobs, 128 = fine details. Influence: larger scale gives smaller features (higher frequency)."}),
                 "perlin_octaves": ("INT", {"default": 3, "min": 1, "max": 8, "tooltip": "Number of Perlin octaves. Examples: 1 = simple, 4 = richer. Influence: more octaves add multi-scale detail."}),
@@ -42,7 +42,7 @@ class WASLatentAffineOptions:
                 "dot_jitter_px": ("FLOAT", {"default": 1.5, "min": 0.0, "max": 10.0, "step": 0.1, "tooltip": "Dot center jitter in pixels."}),
                 "dot_fill_ratio": ("FLOAT", {"default": 0.3, "min": 0.01, "max": 0.95, "step": 0.01, "tooltip": "Approximate fill area per cell (0..1)."}),
                 "content_window": ("INT", {"default": 7, "min": 3, "max": 63, "tooltip": "Odd kernel size for content-aware local variance (detail/smooth patterns). Typical: 5-11."}),
-                "solid_alpha": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Solid mask constant alpha (0..1). 0 disables; 1 full mask."}),
+                "solid_alpha": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.0001, "tooltip": "Solid mask constant alpha (0..1). 0 disables; 1 full mask."}),
                 "blur_ksize": ("INT", {"default": 0, "min": 0, "max": 51, "tooltip": "Gaussian blur kernel size (odd). Examples: 0/1 = no blur, 9 = soft edges. Influence: larger values smooth mask transitions."}),
                 "blur_sigma": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 16.0, "step": 0.1, "tooltip": "Gaussian blur sigma. Examples: 0 = no blur, 1.5 = moderate. Influence: controls blur strength; used only if > 0 and ksize > 1."}),
                 "clamp": ("BOOLEAN", {"default": False, "tooltip": "Clamp output latent values to [min,max]. Examples: True to avoid extreme values. Influence: prevents overflows after scaling/bias."}),
@@ -153,8 +153,8 @@ class WASLatentAffineCommonOptions:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "mask_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Scales mask intensity before applying scale/bias."}),
-                "threshold": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Binarize mask if > 0."}),
+                "mask_strength": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Scales mask intensity before applying scale/bias."}),
+                "threshold": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.0001, "tooltip": "Binarize mask if > 0."}),
                 "invert_mask": ("BOOLEAN", {"default": False, "tooltip": "Invert after threshold/blur."}),
                 "sharpen_enable": ("BOOLEAN", {"default": False, "tooltip": "Sharpen the generated noise/mask before threshold/blur using unsharp masking. Off by default."}),
                 "sharpen_sigma": ("FLOAT", {"default": 0.8, "min": 0.0, "max": 8.0, "step": 0.05, "tooltip": "Sharpen radius (Gaussian sigma). 0 disables. Typical: 0.5-1.5."}),
@@ -168,7 +168,7 @@ class WASLatentAffineCommonOptions:
                 "frame_seed_stride": ("INT", {"default": 9973, "min": 1, "max": 100000, "tooltip": "Seed increment per frame when temporal mode is per_frame."}),
                 "compute_device": (["auto", "cuda", "cpu"], {"default": "cuda" if torch.cuda.is_available() else "cpu", "tooltip": "Where to generate procedural masks/noise. 'auto' prefers CUDA when available; otherwise CPU."}),
                 "device_index": ("INT", {"default": 0, "min": 0, "max": 7, "tooltip": "CUDA device index when using GPU."}),
-                "solid_alpha": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Solid mask constant alpha (0..1). 0 disables; 1 full mask."}),
+                "solid_alpha": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.0001, "tooltip": "Solid mask constant alpha (0..1). 0 disables; 1 full mask."}),
             }
         }
 
@@ -510,7 +510,7 @@ class WASSolidMaskOptions:
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {
-            "solid_alpha": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Solid mask constant alpha (0..1). 0 = no effect; 1 = full mask."}),
+            "solid_alpha": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.0001, "tooltip": "Solid mask constant alpha (0..1). 0 = no effect; 1 = full mask."}),
         }}
 
     RETURN_TYPES = ("DICT",)

@@ -68,11 +68,11 @@ class WASLatentAffine:
         return {
             "required": {
                 "latent": ("LATENT", {"tooltip": "Input latent input to apply Affine to."}),
-                "scale": ("FLOAT", {"default": 0.96, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Multiplicative factor applied. Examples: 1.0 = no change, <1 darkens, >1 amplifies features. Influence: controls gain in masked regions."}),
-                "bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.001, "tooltip": "Additive offset applied. Examples: 0.1 brightens, -0.1 darkens. Influence: shifts values in masked regions."}),
+                "scale": ("FLOAT", {"default": 0.96, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Multiplicative factor applied. Examples: 1.0 = no change, <1 darkens, >1 amplifies features. Influence: controls gain in masked regions."}),
+                "bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.0001, "tooltip": "Additive offset applied. Examples: 0.1 brightens, -0.1 darkens. Influence: shifts values in masked regions."}),
                 "pattern": (PATTERN_CHOICES_LIST, {"tooltip": "Mask source. Procedural: white/pink/brown(red)/blue/violet(purple)/green/black (spectrally-shaped); cross_hatch (oriented gratings); highpass_white (Butterworth-shaped); ring_noise (narrow high-freq annulus); poisson_blue_mask (Poisson-disk distance field); worley_edges (cell boundaries); tile_oriented_lines (per-tile gratings); dot_screen_jitter (halftone dots with jitter); velvet (sparse impulses); perlin (smooth noise); checker/bayer (tiled); solid (constant alpha). Content-aware (from latent): detail_region (high texture/variance), smooth_region (low detail), edges_sobel, edges_laplacian. external_mask: use provided IMAGE directly. If an external mask is connected and pattern != external_mask, it gates the generated mask so the affine/noise only applies where this mask is 1."}),
                 "temporal_mode": (["static","per_frame"], {"tooltip": "Static: one mask for all frames. Per-frame: vary mask over time.."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Random seed for procedural masks."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Random seed for procedural masks."}),
             },
             "optional": {
                 "external_mask": ("IMAGE", {"tooltip": "External mask image [N,H,W,C]. If pattern='external_mask', this image (after threshold/invert/blur) is used as the mask. Otherwise, if connected, it gates the generated mask so the affine/noise only applies where this mask is 1."}),
@@ -502,9 +502,9 @@ class WASLatentAffineSimple:
         return {
             "required": {
                 "latent": ("LATENT", {"tooltip": "Input latent to apply Affine to."}),
-                "scale": ("FLOAT", {"default": 0.96, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Multiplicative factor. <1 darkens; >1 brightens."}),
+                "scale": ("FLOAT", {"default": 0.96, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Multiplicative factor. <1 darkens; >1 brightens."}),
                 "noise_pattern": (PATTERN_CHOICES, {"tooltip": "Pattern used to generate the mask. Auto-tuned for rough/noisy results."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Random seed for mask generation."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Random seed for mask generation."}),
                 "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "static: same mask for all frames; per_frame: re-generate per frame for lively/noisy motion."}),
                 "frame_seed_stride": ("INT", {"default": 9973, "min": 1, "max": 100000, "tooltip": "Seed increment per frame when temporal_mode is per_frame."}),
             }
@@ -609,6 +609,8 @@ class WASLatentAffineSimple:
             "sharpen_sigma": 0.8,
             "sharpen_amount": 0.3,
             "sharpen_threshold": 0.0,
+            # Default window for content-aware masks (used by detail/smooth/edges)
+            "content_window": 7,
         }
 
         aff = WASLatentAffine()
@@ -618,7 +620,12 @@ class WASLatentAffineSimple:
         if x.ndim == 4:
             n, c, h, w = x.shape
             params = {**base_params, **self._auto_params(h, w, noise_pattern)}
-            m = aff._make_mask_4d(n, h, w, noise_pattern, params, device, dtype, seed)
+            if noise_pattern in ("detail_region", "smooth_region", "edges_sobel", "edges_laplacian"):
+                # Derive mask from the latent content itself
+                m = aff._content_mask_from_latent(x, noise_pattern, params)
+                m = aff._apply_threshold_blur(m, params)
+            else:
+                m = aff._make_mask_4d(n, h, w, noise_pattern, params, device, dtype, seed)
             s_map = (1.0 - m) + m * s.view(1, 1, 1, 1)
             y = x * s_map
             out = {"samples": y}
@@ -633,7 +640,14 @@ class WASLatentAffineSimple:
             params = {**base_params, **self._auto_params(h, w, noise_pattern)}
             mode = str(temporal_mode)
             stride = int(frame_seed_stride)
-            m = aff._make_mask_5d(n, f, h, w, noise_pattern, params, device, dtype, seed, mode, stride)
+            if noise_pattern in ("detail_region", "smooth_region", "edges_sobel", "edges_laplacian"):
+                # Compute content-aware mask per frame from latent
+                xf = x.permute(0, 2, 1, 3, 4).contiguous().view(n * f, c, h, w)
+                mf = aff._content_mask_from_latent(xf, noise_pattern, params)
+                mf = aff._apply_threshold_blur(mf, params)
+                m = mf.view(n, f, 1, h, w).permute(0, 2, 1, 3, 4).contiguous()
+            else:
+                m = aff._make_mask_5d(n, f, h, w, noise_pattern, params, device, dtype, seed, mode, stride)
             s_map = (1.0 - m) + m * s.view(1, 1, 1, 1, 1)
             y = x * s_map
             out = {"samples": y}
@@ -662,20 +676,23 @@ class WASAffineKSamplerAdvanced:
                 "negative": ("CONDITIONING", {"tooltip": "Negative prompt conditioning."}),
                 "latent_image": ("LATENT", {"tooltip": "Input latent to continue sampling from."}),
                 "add_noise": ("BOOLEAN", {"default": True, "tooltip": "Add initial noise at the first step (common for text-to-image)."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Random seed for the sampler."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Random seed for the sampler."}),
                 "steps": ("INT", {"default": 20, "min": 1, "max": 200, "step": 1, "tooltip": "Number of denoising steps."}),
-                "cfg": ("FLOAT", {"default": 4.5, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Can be a single float value or a list of float values for per-step CFG. If list is shorter than total steps, the last value will be repeated for remaining steps."}),
-                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"tooltip": "The algorithm used when sampling, this can affect the quality, speed, and style of the generated output."}),
-                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"tooltip": "The scheduler controls how noise is gradually removed to form the image."}),
+                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Can be a single float value or a list of float values for per-step CFG. If list is shorter than total steps, the last value will be repeated for remaining steps."}),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"default": "euler", "tooltip": "The algorithm used when sampling, this can affect the quality, speed, and style of the generated output."}),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"default": "simple", "tooltip": "The scheduler controls how noise is gradually removed to form the image."}),
                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Fraction of noise to remove (lower = stronger preserve)."}),
                 "affine_interval": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1, "tooltip": "Interval in steps to apply affine (1 = every step; 2 = every 2 steps, etc.). Does not change total steps."}),
-                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Upper bound on multiplicative affine strength applied at schedule peak."}),
-                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.001, "tooltip": "Upper bound on additive bias applied at schedule peak."}),
+                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Upper bound on multiplicative affine strength applied at schedule peak."}),
+                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.0001, "tooltip": "Upper bound on additive bias applied at schedule peak."}),
                 "pattern": (PATTERN_CHOICES_LIST, {"default": "white_noise", "tooltip": "Mask/noise pattern used when applying affine between sampling steps."}),
-                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
+                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
                 "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "If enabled, increment affine seed for each group application (temporal masks)."}),
                 "affine_schedule": ("DICT", {"tooltip": "Use WASAffineScheduleOptions (interpreted over total steps)."}),
                 "temporal_mode": (["static", "per_frame"], {"default": "static", "tooltip": "Temporal behavior of the affine mask for video latents. 'static': one mask reused across all frames at each application. 'per_frame': re-generate mask per frame (livelier/noisier motion)."}),
+                "apply_timing": (["pre_only", "boundary", "both"], {"default": "pre_only", "tooltip": "When to apply Affine. pre_only: once before any sampling (matches Latent Affine behavior). boundary: at schedule boundaries. both: pre_only and boundaries."}),
+                "pre_scale_mode": (["absolute", "schedule_scaled"], {"default": "absolute", "tooltip": "How to compute pre-apply scale/bias. absolute: use max_scale and max_bias directly (like Latent Affine). schedule_scaled: multiply by schedule peak t."}),
+                "preserve_stats": ("BOOLEAN", {"default": False, "tooltip": "Preserve latent mean/std after affine application (normalizes back to pre-affine statistics). Disable to match legacy behavior."}),
             },
             "optional": {
                 "external_mask": ("IMAGE", {"tooltip": "Optional external mask image; when provided and pattern != external_mask, it gates where affine applies."}),
@@ -685,6 +702,8 @@ class WASAffineKSamplerAdvanced:
                 "end_at_step": ("INT", {"default": 10000, "min": 0, "max": 10000, "step": 1, "tooltip": "End step index (exclusive) within the sampler."}),
                 "return_with_leftover_noise": ("BOOLEAN", {"default": False, "tooltip": "If true, force last step to full denoise behavior."}),
                 "merge_inactive_steps": ("BOOLEAN", {"default": True, "tooltip": "Greedily merge steps outside the active schedule window into larger batches."}),
+                "affine_accumulate_device": (["auto", "cuda", "cpu"], {"default": "auto", "tooltip": "Device to use for the affine math inside this node only. 'auto' = follow latent/model device; 'cuda' = use CUDA if available; 'cpu' = force CPU."}),
+                "affine_accumulate_device_index": ("INT", {"default": 0, "min": 0, "max": 16, "step": 1, "tooltip": "CUDA device index when affine_accumulate_device='cuda'."}),
             },
         }
 
@@ -709,6 +728,9 @@ class WASAffineKSamplerAdvanced:
         affine_seed,
         affine_seed_increment,
         affine_schedule,
+        apply_timing,
+        pre_scale_mode,
+        preserve_stats,
         external_mask=None,
         options=None,
         noise_options=None,
@@ -717,8 +739,8 @@ class WASAffineKSamplerAdvanced:
         return_with_leftover_noise=False,
         merge_inactive_steps=True,
         temporal_mode="static",
-        segment_mode="late_only",
-        late_only_percent=0.2,
+        affine_accumulate_device="auto",
+        affine_accumulate_device_index=0,
     ):
         import inspect as _inspect
         import torch as _torch
@@ -736,6 +758,27 @@ class WASAffineKSamplerAdvanced:
         cur = latent_image["samples"]
         if not isinstance(cur, _torch.Tensor) or cur.dim() not in (4, 5):
             raise ValueError("LATENT['samples'] must be 4D [B,C,H,W] or 5D [B,C,F,H,W]")
+
+        # Resolve devices for accumulation (affine math) vs model target
+        target_device = cur.device
+        acc_pref = str(affine_accumulate_device)
+        acc_index = int(affine_accumulate_device_index)
+        acc_device = target_device
+        try:
+            if acc_pref == "cpu":
+                acc_device = _torch.device("cpu")
+            elif acc_pref == "cuda":
+                if _torch.cuda.is_available():
+                    acc_index = max(0, min(acc_index, _torch.cuda.device_count() - 1))
+                    acc_device = _torch.device(f"cuda:{acc_index}")
+                else:
+                    acc_device = target_device
+        except Exception:
+            acc_device = target_device
+        try:
+            print(f"[WASAffineKSamplerAdvanced] target_device={target_device}, accumulate_device={acc_device}")
+        except Exception:
+            pass
 
         sched = affine_schedule or {}
         start = float(sched.get("start", 0.2))
@@ -770,6 +813,98 @@ class WASAffineKSamplerAdvanced:
         except Exception:
             _pbar = None
 
+        # Force legacy behavior: apply affine only at boundaries (no pre-apply, no early return)
+        try:
+            apply_timing = "boundary"
+        except Exception:
+            pass
+
+        # Determine if affine is globally enabled
+        affine_enabled_globally = (abs(float(max_scale) - 1.0) > 1e-12) or (abs(float(max_bias)) > 1e-12)
+        # Pre-apply option (once before any sampling). By default use absolute scale/bias for parity with Latent Affine.
+        if affine_enabled_globally and str(apply_timing) in ("pre_only", "both"):
+            t_peak = float(max(dd)) if len(dd) > 0 else 1.0
+            if str(pre_scale_mode) == "absolute":
+                s_pre = float(max_scale)
+                b_pre = float(max_bias)
+            else:
+                s_pre = 1.0 + (float(max_scale) - 1.0) * t_peak
+                b_pre = float(max_bias) * t_peak
+            if not (abs(s_pre - 1.0) < 1e-8 and abs(b_pre) < 1e-8):
+                try:
+                    print(f"[WASAffineKSamplerAdvanced] Pre-apply Affine s={s_pre} b={b_pre} t_peak={t_peak} mode={pre_scale_mode}")
+                except Exception:
+                    pass
+                lat_in = {"samples": cur}
+                # Capture stats before
+                try:
+                    import torch as _torch
+                    mean_before = cur.mean()
+                    std_before = cur.std()
+                except Exception:
+                    mean_before = None
+                    std_before = None
+                seed_pre = int(affine_seed)
+                lat_out, _mask_pre = aff.apply(
+                    lat_in,
+                    s_pre,
+                    b_pre,
+                    pattern,
+                    temporal_mode,
+                    seed_pre,
+                    external_mask=external_mask,
+                    noise_options=noise_options,
+                    options=options,
+                )
+                cur = lat_out.get("samples", cur)
+                # Restore stats if requested
+                if preserve_stats and ('mean_before' in locals()) and (mean_before is not None):
+                    try:
+                        import torch as _torch
+                        mean_after = cur.mean()
+                        std_after = cur.std()
+                        eps_n = 1e-6
+                        if float(std_after) > eps_n:
+                            cur = (cur - mean_after) * (std_before / (std_after + eps_n)) + mean_before
+                    except Exception:
+                        pass
+
+        # If we're only pre-applying, run the sampler once normally and return early
+        if str(apply_timing) == "pre_only":
+            first_step = True
+            add_noise_enum = "enable" if (first_step and add_noise) else "disable"
+            available = {
+                "model": model,
+                "positive": positive,
+                "negative": negative,
+                "latent_image": {"samples": cur},
+                "seed": int(seed),
+                "noise_seed": int(seed),
+                "steps": int(steps),
+                "cfg": get_cfg_for_step(cfg, 0, steps),
+                "sampler_name": sampler_name,
+                "scheduler": scheduler,
+                "denoise": float(denoise),
+                "add_noise": add_noise_enum,
+                "start_at_step": s0,
+                "end_at_step": s1,
+                "return_with_leftover_noise": "disable",
+            }
+            call_kwargs = {k: v for k, v in available.items() if k in accepted and v is not None}
+            out = ks_sample(**call_kwargs)
+            res = out[0] if isinstance(out, tuple) and len(out) > 0 and isinstance(out[0], dict) else out if isinstance(out, dict) else None
+            if res is None:
+                import torch as _torch
+                if isinstance(out, _torch.Tensor):
+                    cur = out
+                else:
+                    raise RuntimeError("Unexpected output from KSamplerAdvanced.sample (pre_only)")
+            else:
+                if "samples" in res:
+                    cur = res["samples"]
+            # No affine mask generated in pre_only path
+            return ({"samples": cur}, None)
+
         total_steps_done = 0
         interval = max(1, int(affine_interval))
         affine_applications = 0
@@ -779,9 +914,10 @@ class WASAffineKSamplerAdvanced:
         while i < s1:
             boundary_idx = min((((i // interval) + 1) * interval) - 1, s1 - 1)
             t_boundary = float(dd[min(boundary_idx, len(dd) - 1)]) if len(dd) > 0 else 0.0
+            t_active = t_boundary if affine_enabled_globally else 0.0
 
             if i < boundary_idx:
-                if merge_inactive_steps and (t_boundary <= eps):
+                if merge_inactive_steps and (t_active <= eps):
                     start_at = i
                     batch_end_idx = boundary_idx
                     # Greedily extend across future inactive boundaries
@@ -798,7 +934,7 @@ class WASAffineKSamplerAdvanced:
                     end_at = min(batch_end_idx + 1, s1)
                     first_step = (total_steps_done == 0)
                     add_noise_enum = "enable" if (first_step and add_noise) else "disable"
-                    current_cfg = get_cfg_for_step(cfg, start_at, steps)
+                    current_cfg = get_cfg_for_step(cfg, i, steps)
                     available = {
                         "model": model,
                         "positive": positive,
@@ -819,7 +955,45 @@ class WASAffineKSamplerAdvanced:
                     call_kwargs = {k: v for k, v in available.items() if k in accepted and v is not None}
                     if isinstance(options, dict) and options.get("debug"):
                         print(f"[WASAffineKSamplerAdvanced] Greedy batch start={start_at} end={end_at}")
-                    out = ks_sample(**call_kwargs)
+                    if isinstance(options, dict) and options.get("debug"):
+                        try:
+                            import gc, torch as _torch
+                            rss = None
+                            try:
+                                import psutil, os
+                                rss = psutil.Process(os.getpid()).memory_info().rss
+                            except Exception:
+                                pass
+                            cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                            cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                            print(f"[WASAffineKSamplerAdvanced][mem] pre greedy: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                        except Exception:
+                            pass
+                    # Preserve leftover noise across split calls; disable only on the final call
+                    try:
+                        if int(end_at) >= int(s1):
+                            call_kwargs["return_with_leftover_noise"] = "disable"
+                        else:
+                            call_kwargs["return_with_leftover_noise"] = "enable"
+                    except Exception:
+                        pass
+                    import torch as _torch
+                    with _torch.inference_mode():
+                        out = ks_sample(**call_kwargs)
+                    if isinstance(options, dict) and options.get("debug"):
+                        try:
+                            import gc, torch as _torch
+                            rss = None
+                            try:
+                                import psutil, os
+                                rss = psutil.Process(os.getpid()).memory_info().rss
+                            except Exception:
+                                pass
+                            cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                            cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                            print(f"[WASAffineKSamplerAdvanced][mem] post greedy: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                        except Exception:
+                            pass
                     res = None
                     if isinstance(out, tuple) and len(out) > 0 and isinstance(out[0], dict):
                         res = out[0]
@@ -855,7 +1029,7 @@ class WASAffineKSamplerAdvanced:
                 end_at = boundary_idx
                 first_step = (total_steps_done == 0)
                 add_noise_enum = "enable" if (first_step and add_noise) else "disable"
-                current_cfg = get_cfg_for_step(cfg, start_at, steps)
+                current_cfg = get_cfg_for_step(cfg, i, steps)
                 available = {
                     "model": model,
                     "positive": positive,
@@ -876,7 +1050,58 @@ class WASAffineKSamplerAdvanced:
                 call_kwargs = {k: v for k, v in available.items() if k in accepted and v is not None}
                 if isinstance(options, dict) and options.get("debug"):
                     print(f"[WASAffineKSamplerAdvanced] batch start={start_at} end={end_at} add_noise={add_noise_enum}")
-                out = ks_sample(**call_kwargs)
+                    try:
+                        import gc, torch as _torch
+                        rss = None
+                        try:
+                            import psutil, os
+                            rss = psutil.Process(os.getpid()).memory_info().rss
+                        except Exception:
+                            pass
+                        cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                        cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                        print(f"[WASAffineKSamplerAdvanced][mem] pre batch: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                    except Exception:
+                        pass
+                if isinstance(options, dict) and options.get("debug"):
+                    try:
+                        import gc, torch as _torch
+                        rss = None
+                        try:
+                            import psutil, os
+                            rss = psutil.Process(os.getpid()).memory_info().rss
+                        except Exception:
+                            pass
+                        cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                        cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                        print(f"[WASAffineKSamplerAdvanced][mem] pre batch: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                    except Exception:
+                        pass
+                # Preserve leftover noise across split calls; disable only on the final call
+                try:
+                    if int(end_at) >= int(s1):
+                        call_kwargs["return_with_leftover_noise"] = "disable"
+                    else:
+                        call_kwargs["return_with_leftover_noise"] = "enable"
+                except Exception:
+                    pass
+                import torch as _torch
+                with _torch.inference_mode():
+                    out = ks_sample(**call_kwargs)
+                if isinstance(options, dict) and options.get("debug"):
+                    try:
+                        import gc, torch as _torch
+                        rss = None
+                        try:
+                            import psutil, os
+                            rss = psutil.Process(os.getpid()).memory_info().rss
+                        except Exception:
+                            pass
+                        cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                        cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                        print(f"[WASAffineKSamplerAdvanced][mem] post batch: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                    except Exception:
+                        pass
                 res = None
                 if isinstance(out, tuple) and len(out) > 0 and isinstance(out[0], dict):
                     res = out[0]
@@ -908,12 +1133,12 @@ class WASAffineKSamplerAdvanced:
                 i = end_at
 
             if i <= boundary_idx and i < s1:
-                if (t_boundary <= eps) and ((i + 1) % interval) == 0:
+                if (t_active <= eps) and ((i + 1) % interval) == 0:
                     first_step = (total_steps_done == 0)
                     add_noise_enum = "enable" if (first_step and add_noise) else "disable"
                     start_at = i
                     end_at = i + 1
-                    current_cfg = get_cfg_for_step(cfg, i, steps)
+                    current_cfg = cfg
                     available = {
                         "model": model,
                         "positive": positive,
@@ -934,7 +1159,58 @@ class WASAffineKSamplerAdvanced:
                     call_kwargs = {k: v for k, v in available.items() if k in accepted and v is not None}
                     if isinstance(options, dict) and options.get("debug"):
                         print(f"[WASAffineKSamplerAdvanced] boundary(batch no-affine) start={start_at} end={end_at}")
-                    out = ks_sample(**call_kwargs)
+                        try:
+                            import gc, torch as _torch
+                            rss = None
+                            try:
+                                import psutil, os
+                                rss = psutil.Process(os.getpid()).memory_info().rss
+                            except Exception:
+                                pass
+                            cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                            cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                            print(f"[WASAffineKSamplerAdvanced][mem] pre boundary: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                        except Exception:
+                            pass
+                    if isinstance(options, dict) and options.get("debug"):
+                        try:
+                            import gc, torch as _torch
+                            rss = None
+                            try:
+                                import psutil, os
+                                rss = psutil.Process(os.getpid()).memory_info().rss
+                            except Exception:
+                                pass
+                            cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                            cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                            print(f"[WASAffineKSamplerAdvanced][mem] pre boundary: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                        except Exception:
+                            pass
+                    # Preserve leftover noise across split calls; disable only on the final call
+                    try:
+                        if int(end_at) >= int(s1):
+                            call_kwargs["return_with_leftover_noise"] = "disable"
+                        else:
+                            call_kwargs["return_with_leftover_noise"] = "enable"
+                    except Exception:
+                        pass
+                    import torch as _torch
+                    with _torch.inference_mode():
+                        out = ks_sample(**call_kwargs)
+                    if isinstance(options, dict) and options.get("debug"):
+                        try:
+                            import gc, torch as _torch
+                            rss = None
+                            try:
+                                import psutil, os
+                                rss = psutil.Process(os.getpid()).memory_info().rss
+                            except Exception:
+                                pass
+                            cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                            cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                            print(f"[WASAffineKSamplerAdvanced][mem] post batch: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                        except Exception:
+                            pass
                     res = None
                     if isinstance(out, tuple) and len(out) > 0 and isinstance(out[0], dict):
                         res = out[0]
@@ -963,34 +1239,55 @@ class WASAffineKSamplerAdvanced:
                     continue
 
                 _applied_affine = False
-                if ((i + 1) % interval) == 0 and (t_boundary > eps):
-                    s_val = 1.0 + (float(max_scale) - 1.0) * t_boundary
-                    b_val = float(max_bias) * t_boundary
-                    lat = {"samples": cur}
-                    seed_i = int(affine_seed) + (affine_applications if affine_seed_increment else 0)
-                    
-                    print(f"[WASAffineKSamplerAdvanced] Applying Affine at step {i} scale={s_val} bias={b_val} seed={seed_i} pattern={pattern} noise={noise_options}")
-                    lat2, _mask = aff.apply(
-                        lat,
-                        s_val,
-                        b_val,
-                        pattern,
-                        temporal_mode,
-                        seed_i,
-                        external_mask=external_mask,
-                        noise_options=noise_options,
-                        options=options,
-                    )
-                    cur = lat2["samples"]
-                    affine_applications += 1
-                    _applied_affine = True
-                    mask_img = _mask
+                # Apply at boundaries only if timing requests it
+                if str(apply_timing) in ("boundary", "both") and ((i + 1) % interval) == 0 and (t_active > eps):
+                    s_val = 1.0 + (float(max_scale) - 1.0) * t_active
+                    b_val = float(max_bias) * t_active
+                    # Skip applying affine when it is an effective no-op (prevents any unintended drift)
+                    if not (abs(s_val - 1.0) < 1e-8 and abs(b_val) < 1e-8):
+                        lat = {"samples": cur}
+                        # Capture stats before
+                        try:
+                            import torch as _torch
+                            mean_before = cur.mean()
+                            std_before = cur.std()
+                        except Exception:
+                            mean_before = None
+                            std_before = None
+                        seed_i = int(affine_seed) + (affine_applications if affine_seed_increment else 0)
+                        print(f"[WASAffineKSamplerAdvanced] Applying Affine at step {i} scale={s_val} bias={b_val} seed={seed_i} pattern={pattern} noise={noise_options}")
+                        lat2, _mask = aff.apply(
+                            lat,
+                            s_val,
+                            b_val,
+                            pattern,
+                            temporal_mode,
+                            seed_i,
+                            external_mask=external_mask,
+                            noise_options=noise_options,
+                            options=options,
+                        )
+                        cur = lat2["samples"]
+                        # Restore stats if requested
+                        if preserve_stats and ('mean_before' in locals()) and (mean_before is not None):
+                            try:
+                                import torch as _torch
+                                mean_after = cur.mean()
+                                std_after = cur.std()
+                                eps_n = 1e-6
+                                if float(std_after) > eps_n:
+                                    cur = (cur - mean_after) * (std_before / (std_after + eps_n)) + mean_before
+                            except Exception:
+                                pass
+                        affine_applications += 1
+                        _applied_affine = True
+                        mask_img = _mask
 
                 first_step = (total_steps_done == 0)
                 add_noise_enum = "enable" if (first_step and add_noise) else "disable"
                 start_at = i
                 end_at = i + 1
-                current_cfg = get_cfg_for_step(cfg, i, steps)
+                current_cfg = cfg
                 available = {
                     "model": model,
                     "positive": positive,
@@ -1011,6 +1308,19 @@ class WASAffineKSamplerAdvanced:
                 call_kwargs = {k: v for k, v in available.items() if k in accepted and v is not None}
                 if isinstance(options, dict) and options.get("debug"):
                     print(f"[WASAffineKSamplerAdvanced] step={i} add_noise={add_noise_enum} start={start_at} end={end_at}")
+                    try:
+                        import gc, torch as _torch
+                        rss = None
+                        try:
+                            import psutil, os
+                            rss = psutil.Process(os.getpid()).memory_info().rss
+                        except Exception:
+                            pass
+                        cuda_alloc = _torch.cuda.memory_allocated() if _torch.cuda.is_available() else 0
+                        cuda_res = _torch.cuda.memory_reserved() if _torch.cuda.is_available() else 0
+                        print(f"[WASAffineKSamplerAdvanced][mem] pre step: rss={rss}, cuda_alloc={cuda_alloc}, cuda_reserved={cuda_res}, gc={gc.get_count()}")
+                    except Exception:
+                        pass
                 out = ks_sample(**call_kwargs)
                 res = None
                 if isinstance(out, tuple) and len(out) > 0 and isinstance(out[0], dict):
@@ -1074,19 +1384,22 @@ class WASAffineKSampler:
                 "positive": ("CONDITIONING", {"tooltip": "Positive prompt conditioning."}),
                 "negative": ("CONDITIONING", {"tooltip": "Negative prompt conditioning."}),
                 "latent_image": ("LATENT", {"tooltip": "Input latent to continue sampling from."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Random seed for the sampler."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Random seed for the sampler."}),
                 "steps": ("INT", {"default": 20, "min": 1, "max": 200, "step": 1, "tooltip": "Number of denoising steps."}),
-                "cfg": ("FLOAT", {"default": 4.5, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Can be a single float value or a list of float values for per-step CFG. If list is shorter than total steps, the last value will be repeated for remaining steps."}),
-                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"tooltip": "The algorithm used when sampling, this can affect the quality, speed, and style of the generated output."}),
-                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"tooltip": "The scheduler controls how noise is gradually removed to form the image."}),
+                "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1, "tooltip": "Classifier-free guidance scale. Accepts a single float or a per-step list/tuple. If a list is shorter than total steps, the last value repeats."}),
+                "sampler_name": (comfy.samplers.KSampler.SAMPLERS, {"default": "euler", "tooltip": "The algorithm used when sampling, this can affect the quality, speed, and style of the generated output."}),
+                "scheduler": (comfy.samplers.KSampler.SCHEDULERS, {"default": "simple", "tooltip": "The scheduler controls how noise is gradually removed to form the image."}),
                 "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01, "tooltip": "Fraction of noise to remove (lower = stronger preserve)."}),
                 "affine_interval": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1, "tooltip": "Interval in steps to apply affine (1 = every step). Does not change total steps."}),
-                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Upper bound on multiplicative affine strength applied at schedule peak."}),
-                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.001, "tooltip": "Upper bound on additive bias applied at schedule peak."}),
+                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Upper bound on multiplicative affine strength applied at schedule peak."}),
+                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.0001, "tooltip": "Upper bound on additive bias applied at schedule peak."}),
                 "pattern": (PATTERN_CHOICES_LIST, {"default": "white_noise", "tooltip": "Mask/noise pattern used when applying affine between sampling steps."}),
-                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
+                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
                 "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "If enabled, increment affine seed for each group application (temporal masks)."}),
                 "affine_schedule": ("DICT", {"tooltip": "Use WASAffineScheduleOptions (interpreted over total steps)."}),
+                "apply_timing": (["pre_only", "boundary", "both"], {"default": "pre_only", "tooltip": "When to apply Affine. pre_only: once before any sampling. boundary: at schedule boundaries. both: pre_only and boundaries."}),
+                "pre_scale_mode": (["absolute", "schedule_scaled"], {"default": "absolute", "tooltip": "How to compute pre-apply scale/bias. absolute: use max_scale and max_bias directly (like Latent Affine). schedule_scaled: multiply by schedule peak t."}),
+                "preserve_stats": ("BOOLEAN", {"default": False, "tooltip": "Preserve latent mean/std after affine; default False to match legacy behavior."}),
             },
             "optional": {
                 "external_mask": ("IMAGE", {"tooltip": "Optional external mask image; when provided and pattern != external_mask, it gates where affine applies."}),
@@ -1116,6 +1429,9 @@ class WASAffineKSampler:
         affine_seed,
         affine_seed_increment,
         affine_schedule,
+        apply_timing,
+        pre_scale_mode,
+        preserve_stats,
         external_mask=None,
         options=None,
         noise_options=None,
@@ -1140,6 +1456,9 @@ class WASAffineKSampler:
             affine_seed=affine_seed,
             affine_seed_increment=affine_seed_increment,
             affine_schedule=affine_schedule,
+            apply_timing=apply_timing,
+            pre_scale_mode=pre_scale_mode,
+            preserve_stats=preserve_stats,
             external_mask=external_mask,
             options=options,
             noise_options=noise_options,
@@ -1167,10 +1486,10 @@ class WASAffineCustomAdvanced:
                 "sigmas": ("SIGMAS", {"tooltip": "Sigma schedule defining the trajectory; length = steps+1."}),
                 "latent_image": ("LATENT", {"tooltip": "Initial latent input to denoise along the provided sigma schedule."}),
                 "affine_interval": ("INT", {"default": 1, "min": 1, "max": 100, "step": 1, "tooltip": "Apply affine every N steps (1 = every step)."}),
-                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.001, "tooltip": "Scale multiplier at schedule peak: 1 + (max_scale-1)*t."}),
-                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.001, "tooltip": "Bias added at schedule peak: max_bias*t."}),
+                "max_scale": ("FLOAT", {"default": 1.2, "min": 0.0, "max": 2.0, "step": 0.0001, "tooltip": "Scale multiplier at schedule peak: 1 + (max_scale-1)*t."}),
+                "max_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.0001, "tooltip": "Bias added at schedule peak: max_bias*t."}),
                 "pattern": (PATTERN_CHOICES_LIST, {"default": "white_noise", "tooltip": "Mask/noise pattern used by Affine."}),
-                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
+                "affine_seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for affine mask generation (separate from sampler seed)."}),
                 "affine_seed_increment": ("BOOLEAN", {"default": False, "tooltip": "If enabled, increment affine seed after each application (temporal masks)."}),
                 "affine_schedule": ("DICT", {"tooltip": "Use WASAffineScheduleOptions; interpreted over total steps (start/end/bias/exponent/curve/etc.)."}),
             },
@@ -1302,45 +1621,95 @@ class WASAffineCustomAdvanced:
             s1 = boundaries[seg_idx + 1]
             if s1 <= s0:
                 continue
-            _sig = sigmas[s0:s1 + 1].contiguous()
-            
-            if seg_idx == 0:
-                step_noise = gen_noise
-            else:
-                step_noise = empty_noise
-            seed_use = base_seed
-            
-            current_guider = guider
-            if cfg_list is not None:
-                current_cfg = get_cfg_for_step(cfg_list, s0, steps)
-                try:
-                    original_cfg = getattr(guider, 'cfg', None)
-                    if original_cfg is None or abs(float(current_cfg) - float(original_cfg)) > 1e-6:
-                        import comfy.samplers
-                        model_patcher = getattr(guider, 'model_patcher', None)
-                        if model_patcher is not None:
-                            current_guider = comfy.samplers.CFGGuider(model_patcher)
-                            if hasattr(guider, 'conds'):
-                                current_guider.conds = guider.conds
-                            else:
-                                pos_cond = getattr(guider, 'positive', None)
-                                neg_cond = getattr(guider, 'negative', None)
-                                if pos_cond is not None and neg_cond is not None:
-                                    current_guider.set_conds(pos_cond, neg_cond)
-                            current_guider.set_cfg(current_cfg)
-                except Exception as e:
+            use_stepwise = (cfg_list is not None)
+            if use_stepwise:
+                for k in range(s0, s1):
+                    _sig = sigmas[k:k + 2].contiguous()
+                    step_noise = gen_noise if (k == 0) else empty_noise
+                    seed_use = base_seed
                     current_guider = guider
                     try:
-                        print(f"[WAS Affine] Failed to create dynamic CFGGuider: {e}")
+                        current_cfg = get_cfg_for_step(cfg_list, k, steps)
+                        original_cfg = getattr(guider, 'cfg', None)
+                        if original_cfg is None or abs(float(current_cfg) - float(original_cfg)) > 1e-6:
+                            import comfy.samplers
+                            model_patcher = getattr(guider, 'model_patcher', None)
+                            if model_patcher is not None:
+                                current_guider = comfy.samplers.CFGGuider(model_patcher)
+                                if hasattr(guider, 'conds'):
+                                    current_guider.conds = guider.conds
+                                else:
+                                    pos_cond = getattr(guider, 'positive', None)
+                                    neg_cond = getattr(guider, 'negative', None)
+                                    if pos_cond is not None and neg_cond is not None:
+                                        current_guider.set_conds(pos_cond, neg_cond)
+                                current_guider.set_cfg(current_cfg)
+                    except Exception as e:
+                        current_guider = guider
+                        try:
+                            print(f"[WAS Affine] Failed to set per-step CFG: {e}")
+                        except Exception:
+                            pass
+                    if noise_mask is not None:
+                        cur = current_guider.sample(step_noise, cur, sampler, _sig, denoise_mask=noise_mask, callback=_callback, disable_pbar=_disable_pbar, seed=seed_use)
+                    else:
+                        cur = current_guider.sample(step_noise, cur, sampler, _sig, callback=_callback, disable_pbar=_disable_pbar, seed=seed_use)
+                    done_steps += 1
+                    if _pbar is not None:
+                        try:
+                            if hasattr(_pbar, "set_message"):
+                                _pbar.set_message(f"step {min(done_steps, steps)}/{steps}")
+                            if hasattr(_pbar, "update_absolute"):
+                                _pbar.update_absolute(min(done_steps, steps))
+                            else:
+                                _pbar.update(1)
+                        except Exception:
+                            pass
+                i_end = s1 - 1
+            else:
+                _sig = sigmas[s0:s1 + 1].contiguous()
+                step_noise = gen_noise if (seg_idx == 0) else empty_noise
+                seed_use = base_seed
+                current_guider = guider
+                if cfg_list is not None:
+                    current_cfg = get_cfg_for_step(cfg_list, s0, steps)
+                    try:
+                        original_cfg = getattr(guider, 'cfg', None)
+                        if original_cfg is None or abs(float(current_cfg) - float(original_cfg)) > 1e-6:
+                            import comfy.samplers
+                            model_patcher = getattr(guider, 'model_patcher', None)
+                            if model_patcher is not None:
+                                current_guider = comfy.samplers.CFGGuider(model_patcher)
+                                if hasattr(guider, 'conds'):
+                                    current_guider.conds = guider.conds
+                                else:
+                                    pos_cond = getattr(guider, 'positive', None)
+                                    neg_cond = getattr(guider, 'negative', None)
+                                    if pos_cond is not None and neg_cond is not None:
+                                        current_guider.set_conds(pos_cond, neg_cond)
+                                current_guider.set_cfg(current_cfg)
+                    except Exception as e:
+                        current_guider = guider
+                        try:
+                            print(f"[WAS Affine] Failed to create dynamic CFGGuider: {e}")
+                        except Exception:
+                            pass
+                if noise_mask is not None:
+                    cur = current_guider.sample(step_noise, cur, sampler, _sig, denoise_mask=noise_mask, callback=_callback, disable_pbar=_disable_pbar, seed=seed_use)
+                else:
+                    cur = current_guider.sample(step_noise, cur, sampler, _sig, callback=_callback, disable_pbar=_disable_pbar, seed=seed_use)
+                done_steps += (s1 - s0)
+                if _pbar is not None:
+                    try:
+                        if hasattr(_pbar, "set_message"):
+                            _pbar.set_message(f"step {min(done_steps, steps)}/{steps}")
+                        if hasattr(_pbar, "update_absolute"):
+                            _pbar.update_absolute(min(done_steps, steps))
+                        else:
+                            _pbar.update(s1 - s0)
                     except Exception:
                         pass
-            
-            if noise_mask is not None:
-                cur = current_guider.sample(step_noise, cur, sampler, _sig, denoise_mask=noise_mask, callback=_callback, disable_pbar=_disable_pbar, seed=seed_use)
-            else:
-                cur = current_guider.sample(step_noise, cur, sampler, _sig, callback=_callback, disable_pbar=_disable_pbar, seed=seed_use)
-            
-            i_end = s1 - 1
+                i_end = s1 - 1
             if i_end >= 0 and not _global_noop_affine:
                 t_end = float(dd[i_end]) if (i_end < len(dd)) else 1.0
                 if ((i_end + 1) % interval) == 0 and (t_end > eps):
@@ -1443,10 +1812,10 @@ class WASAffinePatternNoise:
         return {
             "required": {
                 "pattern": (patterns, {"default": "white_noise", "tooltip": "Pattern used to synthesize structured noise (excludes solid and content-derived patterns)."}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 2**31-1, "tooltip": "Seed for reproducible noise generation."}),
-                "affine_scale": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 10.0, "step": 0.001, "tooltip": "Pattern amplitude multiplier applied to the base ComfyUI noise. Controls how much the pattern affects the final noise."}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff, "tooltip": "Seed for reproducible noise generation."}),
+                "affine_scale": ("FLOAT", {"default": 0.95, "min": 0.0, "max": 10.0, "step": 0.0001, "tooltip": "Pattern amplitude multiplier applied to the base ComfyUI noise. Controls how much the pattern affects the final noise."}),
                 "normalize": ("BOOLEAN", {"default": True, "tooltip": "If enabled, center and scale the generated pattern to zero-mean unit-std before amplitude scaling."}),
-                "affine_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.001, "tooltip": "Additive bias applied where the pattern mask is active. Positive values brighten, negative values darken."}),
+                "affine_bias": ("FLOAT", {"default": 0.0, "min": -2.0, "max": 2.0, "step": 0.0001, "tooltip": "Additive bias applied where the pattern mask is active. Positive values brighten, negative values darken."}),
             },
             "optional": {
                 "options": ("DICT", {"tooltip": "Base options DICT for pattern parameters (same keys as Affine patterns)."}),
