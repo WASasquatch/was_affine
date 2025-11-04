@@ -203,7 +203,6 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         else:
             b, h, w, c = image.shape
 
-        # If tiling disabled or video input, fall back to single-pass latent sampling
         if int(tile_width) <= 0 or int(tile_height) <= 0 or is_video:
             with torch.no_grad():
                 latent = vae.encode(image)
@@ -238,22 +237,62 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 verbose=verbose,
             )
             merged_tensor = out_lat["samples"] if isinstance(out_lat, dict) else out_lat
+            
+            try:
+                t_comp_fn = getattr(vae, "temporal_compression_decode", None)
+                require_5d = False
+                if callable(t_comp_fn):
+                    try:
+                        require_5d = t_comp_fn() is not None
+                    except Exception:
+                        require_5d = False
+                if isinstance(merged_tensor, torch.Tensor):
+                    if merged_tensor.dim() == 4 and require_5d:
+                        merged_tensor = merged_tensor.unsqueeze(2)
+                    elif merged_tensor.dim() == 5 and not require_5d:
+                        b0, c0, f0, h0, w0 = merged_tensor.shape
+                        merged_tensor = merged_tensor.reshape(b0 * f0, c0, h0, w0)
+                
+                if tiled_decode:
+                    tile_size = int(tiled_tile_size)
+                    overlap = int(tiled_overlap)
+                    temporal_size = int(tiled_temporal_size)
+                    temporal_overlap = int(tiled_temporal_overlap)
+                    if tile_size < overlap * 4:
+                        overlap = tile_size // 4
+                    t_comp = vae.temporal_compression_decode()
+                    if t_comp is not None:
+                        temporal_size_adj = max(2, temporal_size // t_comp)
+                        temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
+                    else:
+                        temporal_size_adj = None
+                        temporal_overlap_adj = None
+                    s_comp = vae.spacial_compression_decode()
+                    tile_x = max(1, tile_size // max(1, s_comp))
+                    tile_y = max(1, tile_size // max(1, s_comp))
+                    overlap_lat = max(0, overlap // max(1, s_comp))
+                    with torch.no_grad():
+                        out_img = vae.decode_tiled(merged_tensor,
+                                                  tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
+                                                  tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
+                else:
+                    with torch.no_grad():
+                        out_img = vae.decode(merged_tensor)
+                
+                if out_img.dim() == 5:
+                    if merge_frames_in_batch:
+                        b_out, f_out, h_out, w_out, c_out = out_img.shape
+                        out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
+            except Exception as e:
+                raise RuntimeError(f"VAE.decode failed: {e}")
         else:
-            # IMAGE-space sampling tiling path (4D IMAGE only)
             tw = max(1, int(tile_width))
             th = max(1, int(tile_height))
             ov = max(0, int(tile_overlap))
-            # Determine latent scale from VAE (fallback 8)
-            try:
-                s_comp = int(vae.spacial_compression_decode())
-            except Exception:
-                s_comp = 8
-            # Compute latent mosaic dimensions
-            H_lat = math.ceil(h / s_comp)
-            W_lat = math.ceil(w / s_comp)
-            full_lat = None
+            
+            full_img = None
             full_wts = None
-            # Iterate tiles
+            tile_count = 0
             for y0 in range(0, h, th - ov if th - ov > 0 else th):
                 y1 = min(h, y0 + th)
                 if y1 - y0 <= 0:
@@ -262,12 +301,18 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     x1 = min(w, x0 + tw)
                     if x1 - x0 <= 0:
                         continue
+                    
+                    tile_count += 1
+                    if verbose:
+                        print(f"[WAS Affine][USDU Tiling] Processing tile {tile_count} at ({y0}:{y1}, {x0}:{x1})")
+                    
                     tile_img = image[:, y0:y1, x0:x1, :]
+                    
                     with torch.no_grad():
                         lat_tile = vae.encode(tile_img)
                     lat_tile = lat_tile if isinstance(lat_tile, dict) else {"samples": lat_tile}
                     lat_samples = lat_tile["samples"]
-                    # Sample this latent tile
+                    
                     out_lat_tile, = run_usdu_pipeline(
                         latents=lat_tile,
                         model=model,
@@ -298,98 +343,70 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                         verbose=verbose,
                     )
                     lat_out_tile = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
-                    # Allocate mosaic on first tile
-                    if isinstance(lat_out_tile, torch.Tensor) and lat_out_tile.dim() == 5:
-                        b_tmp, c_tmp, f_tmp, h_tmp, w_tmp = lat_out_tile.shape
-                        lat_out_tile = lat_out_tile.view(b_tmp * f_tmp, c_tmp, h_tmp, w_tmp)
-                    if full_lat is None:
-                        bsz, cL, hL, wL = lat_out_tile.shape
-                        full_lat = torch.zeros((bsz, cL, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
-                        full_wts = torch.zeros((1, 1, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
-                    # Compute latent-space coords and clamp
-                    oy0 = y0 // s_comp
-                    ox0 = x0 // s_comp
-                    hLt, wLt = lat_out_tile.shape[2], lat_out_tile.shape[3]
-                    oy1 = min(oy0 + hLt, H_lat)
-                    ox1 = min(ox0 + wLt, W_lat)
-                    thL = oy1 - oy0
-                    twL = ox1 - ox0
-                    tile_crop = lat_out_tile[:, :, :thL, :twL]
-                    # Build feather weights in latent space
-                    ovL = max(0, ov // s_comp)
-                    ov_h = min(ovL, thL // 2)
-                    ov_w = min(ovL, twL // 2)
-                    wmask = torch.ones((1, 1, thL, twL), device=tile_crop.device, dtype=tile_crop.dtype)
+                    
+                    with torch.no_grad():
+                        if tiled_decode:
+                            tile_size = int(tiled_tile_size)
+                            overlap = int(tiled_overlap)
+                            if tile_size < overlap * 4:
+                                overlap = tile_size // 4
+                            try:
+                                s_comp = int(vae.spacial_compression_decode())
+                            except Exception:
+                                s_comp = 8
+                            tile_x = max(1, tile_size // max(1, s_comp))
+                            tile_y = max(1, tile_size // max(1, s_comp))
+                            overlap_lat = max(0, overlap // max(1, s_comp))
+                            decoded_tile = vae.decode_tiled(lat_out_tile,
+                                                           tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat)
+                        else:
+                            decoded_tile = vae.decode(lat_out_tile)
+                    
+                    if decoded_tile.dim() == 5:
+                        b_tmp, f_tmp, h_tmp, w_tmp, c_tmp = decoded_tile.shape
+                        decoded_tile = decoded_tile.view(b_tmp * f_tmp, h_tmp, w_tmp, c_tmp)
+                    
+                    if full_img is None:
+                        bsz, h_out, w_out, c_out = decoded_tile.shape
+                        full_img = torch.zeros((bsz, h, w, c_out), device=decoded_tile.device, dtype=decoded_tile.dtype)
+                        full_wts = torch.zeros((1, h, w, 1), device=decoded_tile.device, dtype=decoded_tile.dtype)
+                    
+                    th_dec, tw_dec = decoded_tile.shape[1], decoded_tile.shape[2]
+                    
+                    oy1 = min(y0 + th_dec, h)
+                    ox1 = min(x0 + tw_dec, w)
+                    th_out = oy1 - y0
+                    tw_out = ox1 - x0
+                    
+                    tile_crop = decoded_tile[:, :th_out, :tw_out, :]
+                    
+                    ov_h = min(ov, th_out // 2)
+                    ov_w = min(ov, tw_out // 2)
+                    wmask = torch.ones((1, th_out, tw_out, 1), device=tile_crop.device, dtype=tile_crop.dtype)
+                    
                     if ov_w > 0:
-                        # Left edge
-                        ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
-                        if ox0 > 0:
-                            wmask[:, :, :, :ov_w] *= ramp
-                        # Right edge
-                        if ox1 < W_lat:
-                            ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
-                            wmask[:, :, :, -ov_w:] *= ramp
+                        if x0 > 0:
+                            ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
+                            wmask[:, :, :ov_w, :] *= ramp
+                        if ox1 < w:
+                            ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
+                            wmask[:, :, -ov_w:, :] *= ramp
+                    
                     if ov_h > 0:
-                        # Top edge
-                        ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
-                        if oy0 > 0:
-                            wmask[:, :, :ov_h, :] *= ramp
-                        # Bottom edge
-                        if oy1 < H_lat:
-                            ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
-                            wmask[:, :, -ov_h:, :] *= ramp
-                    # Accumulate
-                    full_lat[:, :, oy0:oy1, ox0:ox1] += tile_crop * wmask
-                    full_wts[:, :, oy0:oy1, ox0:ox1] += wmask
-            merged_tensor = full_lat / (full_wts + 1e-8)
-        try:
-            t_comp_fn = getattr(vae, "temporal_compression_decode", None)
-            require_5d = False
-            if callable(t_comp_fn):
-                try:
-                    require_5d = t_comp_fn() is not None
-                except Exception:
-                    require_5d = False
-            if isinstance(merged_tensor, torch.Tensor):
-                if merged_tensor.dim() == 4 and require_5d:
-                    merged_tensor = merged_tensor.unsqueeze(2)
-                elif merged_tensor.dim() == 5 and not require_5d:
-                    b0, c0, f0, h0, w0 = merged_tensor.shape
-                    merged_tensor = merged_tensor.reshape(b0 * f0, c0, h0, w0)
-            if tiled_decode:
-                tile_size = int(tiled_tile_size)
-                overlap = int(tiled_overlap)
-                temporal_size = int(tiled_temporal_size)
-                temporal_overlap = int(tiled_temporal_overlap)
-                if tile_size < overlap * 4:
-                    overlap = tile_size // 4
-                t_comp = vae.temporal_compression_decode()
-                if t_comp is not None:
-                    temporal_size_adj = max(2, temporal_size // t_comp)
-                    temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
-                else:
-                    temporal_size_adj = None
-                    temporal_overlap_adj = None
-                s_comp = vae.spacial_compression_decode()
-                tile_x = max(1, tile_size // max(1, s_comp))
-                tile_y = max(1, tile_size // max(1, s_comp))
-                overlap_lat = max(0, overlap // max(1, s_comp))
-                with torch.no_grad():
-                    images = vae.decode_tiled(merged_tensor,
-                                              tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
-                                              tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
-                if isinstance(images, torch.Tensor) and images.dim() == 5:
-                    out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
-                else:
-                    out_img = images
-            else:
-                with torch.no_grad():
-                    out_img = vae.decode(merged_tensor)
-            if merge_frames_in_batch and out_img.dim() == 5:
-                b_out, f_out, h_out, w_out, c_out = out_img.shape
-                out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
-        except Exception as e:
-            raise RuntimeError(f"VAE.decode failed: {e}")
+                        if y0 > 0:
+                            ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
+                            wmask[:, :ov_h, :, :] *= ramp
+                        if oy1 < h:
+                            ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
+                            wmask[:, -ov_h:, :, :] *= ramp
+                    
+                    full_img[:, y0:oy1, x0:ox1, :] += tile_crop * wmask
+                    full_wts[:, y0:oy1, x0:ox1, :] += wmask
+            
+            out_img = full_img / (full_wts + 1e-8)
+            
+            if verbose:
+                print(f"[WAS Affine][USDU Tiling] Completed {tile_count} tiles, output shape: {tuple(out_img.shape)}")
 
         return (out_img,)
 
@@ -522,7 +539,6 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
         else:
             b, h, w, c = image.shape
 
-        # If tiling disabled or video input, fall back to single-pass latent sampling
         if int(tile_width) <= 0 or int(tile_height) <= 0 or is_video:
             with torch.no_grad():
                 latent = vae.encode(image)
@@ -559,22 +575,62 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                 custom_sigmas=custom_sigmas,
             )
             merged_tensor = out_lat["samples"] if isinstance(out_lat, dict) else out_lat
+            
+            try:
+                t_comp_fn = getattr(vae, "temporal_compression_decode", None)
+                require_5d = False
+                if callable(t_comp_fn):
+                    try:
+                        require_5d = t_comp_fn() is not None
+                    except Exception:
+                        require_5d = False
+                if isinstance(merged_tensor, torch.Tensor):
+                    if merged_tensor.dim() == 4 and require_5d:
+                        merged_tensor = merged_tensor.unsqueeze(2)
+                    elif merged_tensor.dim() == 5 and not require_5d:
+                        b0, c0, f0, h0, w0 = merged_tensor.shape
+                        merged_tensor = merged_tensor.reshape(b0 * f0, c0, h0, w0)
+                
+                if tiled_decode:
+                    tile_size = int(tiled_tile_size)
+                    overlap = int(tiled_overlap)
+                    temporal_size = int(tiled_temporal_size)
+                    temporal_overlap = int(tiled_temporal_overlap)
+                    if tile_size < overlap * 4:
+                        overlap = tile_size // 4
+                    t_comp = vae.temporal_compression_decode()
+                    if t_comp is not None:
+                        temporal_size_adj = max(2, temporal_size // t_comp)
+                        temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
+                    else:
+                        temporal_size_adj = None
+                        temporal_overlap_adj = None
+                    s_comp = vae.spacial_compression_decode()
+                    tile_x = max(1, tile_size // max(1, s_comp))
+                    tile_y = max(1, tile_size // max(1, s_comp))
+                    overlap_lat = max(0, overlap // max(1, s_comp))
+                    with torch.no_grad():
+                        out_img = vae.decode_tiled(merged_tensor,
+                                                  tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
+                                                  tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
+                else:
+                    with torch.no_grad():
+                        out_img = vae.decode(merged_tensor)
+                
+                if out_img.dim() == 5:
+                    if merge_frames_in_batch:
+                        b_out, f_out, h_out, w_out, c_out = out_img.shape
+                        out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
+            except Exception as e:
+                raise RuntimeError(f"VAE.decode failed: {e}")
         else:
-            # IMAGE-space sampling tiling path (4D IMAGE only)
             tw = max(1, int(tile_width))
             th = max(1, int(tile_height))
             ov = max(0, int(tile_overlap))
-            # Determine latent scale from VAE (fallback 8)
-            try:
-                s_comp = int(vae.spacial_compression_decode())
-            except Exception:
-                s_comp = 8
-            # Compute latent mosaic dimensions
-            H_lat = math.ceil(h / s_comp)
-            W_lat = math.ceil(w / s_comp)
-            full_lat = None
+            
+            full_img = None
             full_wts = None
-            # Iterate tiles
+            tile_count = 0
             for y0 in range(0, h, th - ov if th - ov > 0 else th):
                 y1 = min(h, y0 + th)
                 if y1 - y0 <= 0:
@@ -583,12 +639,18 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                     x1 = min(w, x0 + tw)
                     if x1 - x0 <= 0:
                         continue
+                    
+                    tile_count += 1
+                    if verbose:
+                        print(f"[WAS Affine][USDU Tiling] Processing tile {tile_count} at ({y0}:{y1}, {x0}:{x1})")
+                    
                     tile_img = image[:, y0:y1, x0:x1, :]
+                    
                     with torch.no_grad():
                         lat_tile = vae.encode(tile_img)
                     lat_tile = lat_tile if isinstance(lat_tile, dict) else {"samples": lat_tile}
                     lat_samples = lat_tile["samples"]
-                    # Sample this latent tile
+                    
                     out_lat_tile, = run_usdu_pipeline(
                         latents=lat_tile,
                         model=model,
@@ -621,101 +683,71 @@ class WASUltimateCustomAdvancedAffineCustom(WASUltimateCustomAdvancedAffineNoUps
                         custom_sigmas=custom_sigmas,
                     )
                     lat_out_tile = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
-                    # Allocate mosaic on first tile
-                    # Flatten potential temporal dimension into batch if present
-                    if isinstance(lat_out_tile, torch.Tensor) and lat_out_tile.dim() == 5:
-                        b_tmp, c_tmp, f_tmp, h_tmp, w_tmp = lat_out_tile.shape
-                        lat_out_tile = lat_out_tile.view(b_tmp * f_tmp, c_tmp, h_tmp, w_tmp)
-                    if full_lat is None:
-                        bsz, cL, hL, wL = lat_out_tile.shape
-                        full_lat = torch.zeros((bsz, cL, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
-                        full_wts = torch.zeros((1, 1, H_lat, W_lat), device=lat_out_tile.device, dtype=lat_out_tile.dtype)
-                    # Compute latent-space coords and clamp
-                    oy0 = y0 // s_comp
-                    ox0 = x0 // s_comp
-                    hLt, wLt = lat_out_tile.shape[2], lat_out_tile.shape[3]
-                    oy1 = min(oy0 + hLt, H_lat)
-                    ox1 = min(ox0 + wLt, W_lat)
-                    thL = oy1 - oy0
-                    twL = ox1 - ox0
-                    tile_crop = lat_out_tile[:, :, :thL, :twL]
-                    # Build feather weights in latent space
-                    ovL = max(0, ov // s_comp)
-                    ov_h = min(ovL, thL // 2)
-                    ov_w = min(ovL, twL // 2)
-                    wmask = torch.ones((1, 1, thL, twL), device=tile_crop.device, dtype=tile_crop.dtype)
+                    
+                    with torch.no_grad():
+                        if tiled_decode:
+                            tile_size = int(tiled_tile_size)
+                            overlap = int(tiled_overlap)
+                            if tile_size < overlap * 4:
+                                overlap = tile_size // 4
+                            try:
+                                s_comp = int(vae.spacial_compression_decode())
+                            except Exception:
+                                s_comp = 8
+                            tile_x = max(1, tile_size // max(1, s_comp))
+                            tile_y = max(1, tile_size // max(1, s_comp))
+                            overlap_lat = max(0, overlap // max(1, s_comp))
+                            decoded_tile = vae.decode_tiled(lat_out_tile,
+                                                           tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat)
+                        else:
+                            decoded_tile = vae.decode(lat_out_tile)
+                    
+                    if decoded_tile.dim() == 5:
+                        b_tmp, f_tmp, h_tmp, w_tmp, c_tmp = decoded_tile.shape
+                        decoded_tile = decoded_tile.view(b_tmp * f_tmp, h_tmp, w_tmp, c_tmp)
+                    
+                    if full_img is None:
+                        bsz, h_out, w_out, c_out = decoded_tile.shape
+                        full_img = torch.zeros((bsz, h, w, c_out), device=decoded_tile.device, dtype=decoded_tile.dtype)
+                        full_wts = torch.zeros((1, h, w, 1), device=decoded_tile.device, dtype=decoded_tile.dtype)
+                    
+                    th_dec, tw_dec = decoded_tile.shape[1], decoded_tile.shape[2]
+                    
+                    oy1 = min(y0 + th_dec, h)
+                    ox1 = min(x0 + tw_dec, w)
+                    th_out = oy1 - y0
+                    tw_out = ox1 - x0
+                    
+                    tile_crop = decoded_tile[:, :th_out, :tw_out, :]
+                    
+                    ov_h = min(ov, th_out // 2)
+                    ov_w = min(ov, tw_out // 2)
+                    wmask = torch.ones((1, th_out, tw_out, 1), device=tile_crop.device, dtype=tile_crop.dtype)
+                    
                     if ov_w > 0:
-                        # Left edge
-                        ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
-                        if ox0 > 0:
-                            wmask[:, :, :, :ov_w] *= ramp
-                        # Right edge
-                        if ox1 < W_lat:
-                            ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, 1, ov_w)
-                            wmask[:, :, :, -ov_w:] *= ramp
+                        if x0 > 0:
+                            ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
+                            wmask[:, :, :ov_w, :] *= ramp
+                        if ox1 < w:
+                            ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
+                            wmask[:, :, -ov_w:, :] *= ramp
+                    
                     if ov_h > 0:
-                        # Top edge
-                        ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
-                        if oy0 > 0:
-                            wmask[:, :, :ov_h, :] *= ramp
-                        # Bottom edge
-                        if oy1 < H_lat:
-                            ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_h, 1)
-                            wmask[:, :, -ov_h:, :] *= ramp
-                    # Accumulate
-                    full_lat[:, :, oy0:oy1, ox0:ox1] += tile_crop * wmask
-                    full_wts[:, :, oy0:oy1, ox0:ox1] += wmask
-            merged_tensor = full_lat / (full_wts + 1e-8)
-
-        # Decode merged latent tensor
-        try:
-            t_comp_fn = getattr(vae, "temporal_compression_decode", None)
-            require_5d = False
-            if callable(t_comp_fn):
-                try:
-                    require_5d = t_comp_fn() is not None
-                except Exception:
-                    require_5d = False
-            if isinstance(merged_tensor, torch.Tensor):
-                if merged_tensor.dim() == 4 and require_5d:
-                    merged_tensor = merged_tensor.unsqueeze(2)
-                elif merged_tensor.dim() == 5 and not require_5d:
-                    b0, c0, f0, h0, w0 = merged_tensor.shape
-                    merged_tensor = merged_tensor.reshape(b0 * f0, c0, h0, w0)
-            if tiled_decode:
-                tile_size = int(tiled_tile_size)
-                overlap = int(tiled_overlap)
-                temporal_size = int(tiled_temporal_size)
-                temporal_overlap = int(tiled_temporal_overlap)
-                if tile_size < overlap * 4:
-                    overlap = tile_size // 4
-                t_comp = vae.temporal_compression_decode()
-                if t_comp is not None:
-                    temporal_size_adj = max(2, temporal_size // t_comp)
-                    temporal_overlap_adj = max(1, min(temporal_size_adj // 2, temporal_overlap // max(1, t_comp)))
-                else:
-                    temporal_size_adj = None
-                    temporal_overlap_adj = None
-                s_comp = vae.spacial_compression_decode()
-                tile_x = max(1, tile_size // max(1, s_comp))
-                tile_y = max(1, tile_size // max(1, s_comp))
-                overlap_lat = max(0, overlap // max(1, s_comp))
-                with torch.no_grad():
-                    images = vae.decode_tiled(merged_tensor,
-                                              tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
-                                              tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
-                if isinstance(images, torch.Tensor) and images.dim() == 5:
-                    out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
-                else:
-                    out_img = images
-            else:
-                with torch.no_grad():
-                    out_img = vae.decode(merged_tensor)
-            if merge_frames_in_batch and out_img.dim() == 5:
-                b_out, f_out, h_out, w_out, c_out = out_img.shape
-                out_img = out_img.view(b_out * f_out, h_out, w_out, c_out)
-        except Exception as e:
-            raise RuntimeError(f"VAE.decode failed: {e}")
+                        if y0 > 0:
+                            ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
+                            wmask[:, :ov_h, :, :] *= ramp
+                        if oy1 < h:
+                            ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
+                            wmask[:, -ov_h:, :, :] *= ramp
+                    
+                    full_img[:, y0:oy1, x0:ox1, :] += tile_crop * wmask
+                    full_wts[:, y0:oy1, x0:ox1, :] += wmask
+            
+            out_img = full_img / (full_wts + 1e-8)
+            
+            if verbose:
+                print(f"[WAS Affine][USDU Tiling] Completed {tile_count} tiles, output shape: {tuple(out_img.shape)}")
+        
 
         return (out_img,)
 
@@ -908,9 +940,10 @@ class WASUltimateCustomAdvancedAffine:
                                               tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat,
                                               tile_t=temporal_size_adj, overlap_t=temporal_overlap_adj)
                 if isinstance(images, torch.Tensor) and images.dim() == 5:
-                    out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
-                else:
-                    out_img = images
+                    if merge_frames_in_batch:
+                        out_img = images.reshape(-1, images.shape[-3], images.shape[-2], images.shape[-1])
+                    else:
+                        out_img = images
             else:
                 with torch.no_grad():
                     out_img = vae.decode(merged_tensor)
