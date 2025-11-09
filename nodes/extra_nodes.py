@@ -227,10 +227,80 @@ class WASWANVAEDecode:
                             weights[b0:b1, of0:ot1, oy0:oy1, ox0:ox1, :] += tw
 
         output = output / (weights + 1e-8)
-        output = output.view(B * out_F, out_H, out_W, 3).to(out_dtype_t)
         if last_frame_fix:
-            output = output[:-t_sf, :, :, :]
+            # Trim last t_sf frames before flattening
+            output = output[:, :-t_sf, :, :, :]
+            out_F = out_F - t_sf
+        # Flatten batch and frame dimensions for ComfyUI IMAGE format [N, H, W, C]
+        output = output.view(B * out_F, out_H, out_W, 3).to(out_dtype_t)
         return (output,)
+
+
+class WASWANVAEEncode:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "vae": ("VAE", {"tooltip": "VAE used to encode the images."}),
+                "images": ("IMAGE", {"tooltip": "Input images in ComfyUI format [N, H, W, C]. N can be a batch of images or frames."}),
+                "batch_mode": (["images", "frames"], {"default": "images", "tooltip": "images: treat N as separate image batches [B=N, F=1]. frames: treat N as video frames [B=1, F=N]."}),
+            },
+        }
+
+    RETURN_TYPES = ("LATENT",)
+    RETURN_NAMES = ("latent",)
+    FUNCTION = "encode"
+    CATEGORY = "latent"
+
+    @torch.inference_mode()
+    def encode(self, vae, images, batch_mode="images"):
+        """
+        Encode images to WAN-compatible latents with proper batch/frame dimensions.
+        
+        Args:
+            vae: VAE model
+            images: [N, H, W, C] tensor
+            batch_mode: "images" = [B=N, C, F=1, H, W], "frames" = [B=1, C, F=N, H, W]
+        """
+        if not isinstance(images, torch.Tensor):
+            raise ValueError("images must be a torch.Tensor")
+        
+        if images.dim() != 4:
+            raise ValueError(f"images must be 4D [N, H, W, C], got {images.dim()}D")
+        
+        N, H, W, C = images.shape
+        
+        if C not in (1, 3, 4):
+            raise ValueError(f"images must have 1, 3, or 4 channels, got {C}")
+        
+        if batch_mode == "images":
+            print(f"[WASWANVAEEncode] Encoding {N} images individually as batches")
+            latent_list = []
+            for i in range(N):
+                img_single = images[i:i+1]
+                lat = vae.encode(img_single)
+                if lat.dim() == 4:
+                    lat = lat.unsqueeze(2)
+                elif lat.dim() != 5:
+                    raise RuntimeError(f"VAE encode returned unexpected {lat.dim()}D tensor")
+                latent_list.append(lat)
+            
+            latent_samples = torch.cat(latent_list, dim=0)
+            print(f"[WASWANVAEEncode] Encoded {N} images as batches: {tuple(latent_samples.shape)} [B, C, F, H, W]")
+            
+        elif batch_mode == "frames":
+            print(f"[WASWANVAEEncode] Encoding {N} frames as video: input shape {tuple(images.shape)} [N, H, W, C]")
+            latent_samples = vae.encode(images)
+            if latent_samples.dim() == 4:
+                latent_samples = latent_samples.unsqueeze(0).permute(0, 2, 1, 3, 4).contiguous()
+            elif latent_samples.dim() != 5:
+                raise RuntimeError(f"VAE encode returned unexpected {latent_samples.dim()}D tensor")
+            
+            print(f"[WASWANVAEEncode] Encoded latent shape: {tuple(latent_samples.shape)} [B, C, F, H, W]")
+        else:
+            raise ValueError(f"Invalid batch_mode: {batch_mode}")
+        
+        return ({"samples": latent_samples},)
 
 
 class WASLatentUpscale:
@@ -476,12 +546,14 @@ class WASMultiBandNoiseApply:
 
 NODE_CLASS_MAPPINGS = {
     "WASWANVAEDecode": WASWANVAEDecode,
+    "WASWANVAEEncode": WASWANVAEEncode,
     "WASLatentUpscale": WASLatentUpscale,
     "WASMultiBandNoiseApply": WASMultiBandNoiseApply,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
-    "WASWANVAEDecode": "WAN Video Decode",
+    "WASWANVAEDecode": "Wan VAE Decode",
+    "WASWANVAEEncode": "Wan VAE Encode",
     "WASLatentUpscale": "Latent Upscale (WIP Exp.)",
     "WASMultiBandNoiseApply": "Multi-Band Latent Apply",
 }

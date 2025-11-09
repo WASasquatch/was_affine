@@ -1,6 +1,6 @@
 [project]
 name = "was-affine"
-version = "2.0.0"
+version = "2.1.0"
 authors = [
     { name="WASasquatch", email="jordanslost@gmail.com" },
 ]
