@@ -1061,7 +1061,14 @@ class WASAffineKSamplerAdvanced:
                 if ((i + 1) % interval) == 0 and (t_boundary > eps):
                     s_val = 1.0 + (float(max_scale) - 1.0) * t_boundary
                     b_val = float(max_bias) * t_boundary
-                    lat = {"samples": cur}
+                    if was_nested and len(all_tensors) > 1:
+                        lat_samples = wrap_nested_tensor([cur] + all_tensors[1:], True)
+                    else:
+                        lat_samples = cur
+                    lat = {"samples": lat_samples}
+                    for k, v in latent_image.items():
+                        if k != "samples":
+                            lat[k] = v
                     seed_i = int(affine_seed) + (affine_applications if affine_seed_increment else 0)
                     
                     print(f"[WASAffineKSamplerAdvanced] Applying Affine at step {i} scale={s_val} bias={b_val} seed={seed_i} pattern={pattern} noise={noise_options}")
@@ -1076,7 +1083,13 @@ class WASAffineKSamplerAdvanced:
                         noise_options=noise_options,
                         options=options,
                     )
-                    cur = lat2["samples"]
+                    lat2_samples = lat2["samples"]
+                    if is_nested_tensor(lat2_samples):
+                        lat2_tensors = lat2_samples.tensors
+                        cur = lat2_tensors[0]
+                        all_tensors = list(lat2_tensors)
+                    else:
+                        cur = lat2_samples
                     affine_applications += 1
                     _applied_affine = True
                     mask_img = _mask
@@ -1454,7 +1467,14 @@ class WASAffineCustomAdvanced:
                 if ((i_end + 1) % interval) == 0 and (t_end > eps):
                     s_val = 1.0 + (float(max_scale) - 1.0) * t_end
                     b_val = float(max_bias) * t_end
-                    lat = {"samples": cur}
+                    if was_nested and len(all_tensors) > 1:
+                        lat_samples = wrap_nested_tensor([cur] + all_tensors[1:], True)
+                    else:
+                        lat_samples = cur
+                    lat = {"samples": lat_samples}
+                    for k, v in latent_image.items() if isinstance(latent_image, dict) else []:
+                        if k != "samples":
+                            lat[k] = v
                     seed_i = _aff_seed + (_applications if bool(affine_seed_increment) else 0)
                     _skip = False
                     try:
@@ -1486,7 +1506,13 @@ class WASAffineCustomAdvanced:
                             noise_options=noise_options,
                             options=options,
                         )
-                        cur = lat2["samples"]
+                        lat2_samples = lat2["samples"]
+                        if is_nested_tensor(lat2_samples):
+                            lat2_tensors = lat2_samples.tensors
+                            cur = lat2_tensors[0]
+                            all_tensors = list(lat2_tensors)
+                        else:
+                            cur = lat2_samples
                         try:
                             mp = getattr(guider, 'model_patcher', None)
                             if mp is not None:
