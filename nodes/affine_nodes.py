@@ -827,8 +827,8 @@ class WASAffineKSamplerAdvanced:
         if not isinstance(latent_image, dict) or "samples" not in latent_image:
             raise ValueError("latent_image must be a LATENT dict with 'samples'")
         cur_raw = latent_image["samples"]
-        cur_tensors, was_nested = unwrap_nested_tensor(cur_raw)
-        cur = cur_tensors[0]
+        all_tensors, was_nested = unwrap_nested_tensor(cur_raw)
+        cur = all_tensors[0]
         if cur.dim() not in (4, 5):
             raise ValueError("LATENT['samples'] must be 4D [B,C,H,W] or 5D [B,C,F,H,W]")
 
@@ -1154,7 +1154,11 @@ class WASAffineKSamplerAdvanced:
                         mask_img = _torch.zeros((b, h, w), dtype=cur_for_mask.dtype, device=cur_for_mask.device)
                 else:
                     mask_img = None
-        out_samples = wrap_nested_tensor([cur], was_nested)
+        if was_nested:
+            out_tensors = [cur] + all_tensors[1:]
+            out_samples = wrap_nested_tensor(out_tensors, was_nested)
+        else:
+            out_samples = cur
         out_latent = {"samples": out_samples}
         for k, v in latent_image.items():
             if k != "samples":
@@ -1314,8 +1318,8 @@ class WASAffineCustomAdvanced:
         else:
             lat_dict = {"samples": latent_image}
         x_raw = lat_dict["samples"]
-        x_tensors, was_nested = unwrap_nested_tensor(x_raw)
-        x = x_tensors[0]
+        all_tensors, was_nested = unwrap_nested_tensor(x_raw)
+        x = all_tensors[0]
         lat_dict["samples"] = x
 
         try:
@@ -1514,7 +1518,11 @@ class WASAffineCustomAdvanced:
                 except Exception:
                     pass
 
-        out_samples = wrap_nested_tensor([cur], was_nested)
+        if was_nested:
+            out_tensors = [cur] + all_tensors[1:]
+            out_samples = wrap_nested_tensor(out_tensors, was_nested)
+        else:
+            out_samples = cur
         out = {"samples": out_samples}
         for k, v in latent_image.items() if isinstance(latent_image, dict) else []:
             if k != "samples":
@@ -1526,7 +1534,9 @@ class WASAffineCustomAdvanced:
                 mp = getattr(guider, 'model_patcher', None)
                 if mp is not None and hasattr(mp.model, 'process_latent_out'):
                     denoised_samples = mp.model.process_latent_out(_x0_output['x0'].cpu())
-                    denoised_samples = wrap_nested_tensor([denoised_samples], was_nested)
+                    if was_nested:
+                        denoised_tensors = [denoised_samples] + all_tensors[1:]
+                        denoised_samples = wrap_nested_tensor(denoised_tensors, was_nested)
                     out_denoised = {"samples": denoised_samples}
                     for k, v in latent_image.items() if isinstance(latent_image, dict) else []:
                         if k != "samples":
@@ -1535,7 +1545,9 @@ class WASAffineCustomAdvanced:
                 mp = getattr(guider, 'model_patcher', None)
                 if mp is not None and hasattr(mp.model, 'process_latent_out'):
                     denoised_samples = mp.model.process_latent_out(cur.cpu())
-                    denoised_samples = wrap_nested_tensor([denoised_samples], was_nested)
+                    if was_nested:
+                        denoised_tensors = [denoised_samples] + all_tensors[1:]
+                        denoised_samples = wrap_nested_tensor(denoised_tensors, was_nested)
                     out_denoised = {"samples": denoised_samples}
                     for k, v in latent_image.items() if isinstance(latent_image, dict) else []:
                         if k != "samples":
