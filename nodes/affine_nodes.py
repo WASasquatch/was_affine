@@ -545,6 +545,8 @@ class WASLatentAffine:
                 if k != "samples":
                     out[k] = v
             if masks:
+                target_device = masks[0].device
+                masks = [m.to(target_device) for m in masks]
                 combined_mask = torch.cat(masks, dim=0) if len(masks) > 1 else masks[0]
             else:
                 t0 = tensors[0]
@@ -725,6 +727,8 @@ class WASLatentAffineSimple:
                 if k != "samples":
                     out[k] = v
             if masks:
+                target_device = masks[0].device
+                masks = [m.to(target_device) for m in masks]
                 combined_mask = torch.cat(masks, dim=0) if len(masks) > 1 else masks[0]
             else:
                 t0 = tensors[0]
