@@ -273,8 +273,9 @@ class WASWANVAEEncode:
         if C not in (1, 3, 4):
             raise ValueError(f"images must have 1, 3, or 4 channels, got {C}")
         
+        print(f"[WASWANVAEEncode] Encoding {N} {'images as batches' if batch_mode == 'images' else 'frames as video'}")
+        
         if batch_mode == "images":
-            print(f"[WASWANVAEEncode] Encoding {N} images individually as batches")
             latent_list = []
             for i in range(N):
                 img_single = images[i:i+1]
@@ -286,20 +287,17 @@ class WASWANVAEEncode:
                 latent_list.append(lat)
             
             latent_samples = torch.cat(latent_list, dim=0)
-            print(f"[WASWANVAEEncode] Encoded {N} images as batches: {tuple(latent_samples.shape)} [B, C, F, H, W]")
             
         elif batch_mode == "frames":
-            print(f"[WASWANVAEEncode] Encoding {N} frames as video: input shape {tuple(images.shape)} [N, H, W, C]")
             latent_samples = vae.encode(images)
             if latent_samples.dim() == 4:
                 latent_samples = latent_samples.unsqueeze(0).permute(0, 2, 1, 3, 4).contiguous()
             elif latent_samples.dim() != 5:
                 raise RuntimeError(f"VAE encode returned unexpected {latent_samples.dim()}D tensor")
-            
-            print(f"[WASWANVAEEncode] Encoded latent shape: {tuple(latent_samples.shape)} [B, C, F, H, W]")
         else:
             raise ValueError(f"Invalid batch_mode: {batch_mode}")
         
+        print(f"[WASWANVAEEncode] Encoded latent shape: {tuple(latent_samples.shape)} [B, C, F, H, W]")
         return ({"samples": latent_samples},)
 
 

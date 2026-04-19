@@ -5,6 +5,11 @@ from comfy.sample import sample as comfy_sample
 import comfy.sample as comfy_sample_mod
 import comfy
 
+try:
+    from comfy.nested_tensor import NestedTensor
+except ImportError:
+    NestedTensor = None
+
 from ..modules.utils import (
     gaussian_blur,
     unsharp_mask,
@@ -60,6 +65,25 @@ PATTERN_CHOICES = [
 ]
 
 PATTERN_CHOICES_LIST = PATTERN_CHOICES + ["external_mask"]
+
+
+def is_nested_tensor(x):
+    """Check if x is a ComfyUI NestedTensor (used by LTX-2/2.3)."""
+    return getattr(x, 'is_nested', False)
+
+
+def unwrap_nested_tensor(x):
+    """Extract tensor(s) from NestedTensor. Returns (tensors_list, was_nested)."""
+    if is_nested_tensor(x):
+        return x.tensors, True
+    return [x], False
+
+
+def wrap_nested_tensor(tensors, was_nested):
+    """Re-wrap tensors into NestedTensor if originally nested."""
+    if was_nested and NestedTensor is not None:
+        return NestedTensor(tensors)
+    return tensors[0] if len(tensors) == 1 else tensors
 
 
 class WASLatentAffine:
@@ -281,8 +305,9 @@ class WASLatentAffine:
             m = torch.stack(ms, dim=2).repeat(n, 1, 1, 1, 1)
         return m
 
-    def apply(
+    def _apply_single(
         self,
+        x,
         latent,
         scale,
         bias,
@@ -293,7 +318,7 @@ class WASLatentAffine:
         noise_options=None,
         options=None,
     ):
-        x = latent["samples"]
+        """Process a single tensor (extracted from NestedTensor or regular tensor)."""
         device, dtype = x.device, x.dtype
 
         opts = {
@@ -429,12 +454,8 @@ class WASLatentAffine:
             y = x * s_map + b * m
             if opts["clamp"]:
                 y = y.clamp(opts["clamp_min"], opts["clamp_max"])
-            out = {"samples": y}
-            for k, v in latent.items():
-                if k != "samples":
-                    out[k] = v
             mask_img = m.squeeze(1).clamp(0.0, 1.0).to(dtype)
-            return (out, mask_img)
+            return y, mask_img
 
         elif x.ndim == 5:
             n, c, f, h, w = x.shape
@@ -485,15 +506,61 @@ class WASLatentAffine:
             y = x * s_map + b.view(1, 1, 1, 1, 1) * m
             if opts["clamp"]:
                 y = y.clamp(opts["clamp_min"], opts["clamp_max"])
-            out = {"samples": y}
-            for k, v in latent.items():
-                if k != "samples":
-                    out[k] = v
             mask_img = m.squeeze(1).contiguous().view(n * f, h, w).clamp(0.0, 1.0).to(dtype)
-            return (out, mask_img)
+            return y, mask_img
 
         else:
             raise ValueError("latent['samples'] must be 4D [N,C,H,W] or 5D [N,C,F,H,W]")
+
+    def apply(
+        self,
+        latent,
+        scale,
+        bias,
+        pattern,
+        temporal_mode,
+        seed,
+        external_mask=None,
+        noise_options=None,
+        options=None,
+    ):
+        x_raw = latent["samples"]
+        tensors, was_nested = unwrap_nested_tensor(x_raw)
+        
+        if was_nested:
+            results = []
+            masks = []
+            for t_idx, x in enumerate(tensors):
+                if x.ndim in (4, 5):
+                    y, mask_img = self._apply_single(
+                        x, latent, scale, bias, pattern, temporal_mode,
+                        seed + t_idx, external_mask, noise_options, options
+                    )
+                    results.append(y)
+                    masks.append(mask_img)
+                else:
+                    results.append(x)
+            out = {"samples": wrap_nested_tensor(results, was_nested)}
+            for k, v in latent.items():
+                if k != "samples":
+                    out[k] = v
+            if masks:
+                combined_mask = torch.cat(masks, dim=0) if len(masks) > 1 else masks[0]
+            else:
+                t0 = tensors[0]
+                combined_mask = torch.zeros((1, t0.shape[-2], t0.shape[-1]), device=t0.device, dtype=t0.dtype)
+            return (out, combined_mask)
+        
+        x = tensors[0]
+        y, mask_img = self._apply_single(
+            x, latent, scale, bias, pattern, temporal_mode,
+            seed, external_mask, noise_options, options
+        )
+        out = {"samples": y}
+        for k, v in latent.items():
+            if k != "samples":
+                out[k] = v
+        return (out, mask_img)
 
 
 class WASLatentAffineSimple:
@@ -595,8 +662,8 @@ class WASLatentAffineSimple:
             })
         return params
 
-    def apply(self, latent, scale, noise_pattern, seed, temporal_mode, frame_seed_stride):
-        x = latent["samples"]
+    def _apply_single_simple(self, x, scale, noise_pattern, seed, temporal_mode, frame_seed_stride):
+        """Process a single tensor for WASLatentAffineSimple."""
         device, dtype = x.device, x.dtype
 
         base_params = {
@@ -612,7 +679,6 @@ class WASLatentAffineSimple:
         }
 
         aff = WASLatentAffine()
-
         s = torch.as_tensor(scale, dtype=dtype, device=device)
 
         if x.ndim == 4:
@@ -621,12 +687,8 @@ class WASLatentAffineSimple:
             m = aff._make_mask_4d(n, h, w, noise_pattern, params, device, dtype, seed)
             s_map = (1.0 - m) + m * s.view(1, 1, 1, 1)
             y = x * s_map
-            out = {"samples": y}
-            for k, v in latent.items():
-                if k != "samples":
-                    out[k] = v
             mask_img = m.squeeze(1).clamp(0.0, 1.0).to(dtype)
-            return (out, mask_img)
+            return y, mask_img
 
         elif x.ndim == 5:
             n, c, f, h, w = x.shape
@@ -636,15 +698,46 @@ class WASLatentAffineSimple:
             m = aff._make_mask_5d(n, f, h, w, noise_pattern, params, device, dtype, seed, mode, stride)
             s_map = (1.0 - m) + m * s.view(1, 1, 1, 1, 1)
             y = x * s_map
-            out = {"samples": y}
-            for k, v in latent.items():
-                if k != "samples":
-                    out[k] = v
             mask_img = m.squeeze(1).contiguous().view(n * f, h, w).clamp(0.0, 1.0).to(dtype)
-            return (out, mask_img)
+            return y, mask_img
 
         else:
             raise ValueError("latent['samples'] must be 4D [N,C,H,W] or 5D [N,C,F,H,W]")
+
+    def apply(self, latent, scale, noise_pattern, seed, temporal_mode, frame_seed_stride):
+        x_raw = latent["samples"]
+        tensors, was_nested = unwrap_nested_tensor(x_raw)
+        
+        if was_nested:
+            results = []
+            masks = []
+            for t_idx, x in enumerate(tensors):
+                if x.ndim in (4, 5):
+                    y, mask_img = self._apply_single_simple(
+                        x, scale, noise_pattern, seed + t_idx, temporal_mode, frame_seed_stride
+                    )
+                    results.append(y)
+                    masks.append(mask_img)
+                else:
+                    results.append(x)
+            out = {"samples": wrap_nested_tensor(results, was_nested)}
+            for k, v in latent.items():
+                if k != "samples":
+                    out[k] = v
+            if masks:
+                combined_mask = torch.cat(masks, dim=0) if len(masks) > 1 else masks[0]
+            else:
+                t0 = tensors[0]
+                combined_mask = torch.zeros((1, t0.shape[-2], t0.shape[-1]), device=t0.device, dtype=t0.dtype)
+            return (out, combined_mask)
+        
+        x = tensors[0]
+        y, mask_img = self._apply_single_simple(x, scale, noise_pattern, seed, temporal_mode, frame_seed_stride)
+        out = {"samples": y}
+        for k, v in latent.items():
+            if k != "samples":
+                out[k] = v
+        return (out, mask_img)
 
 
 class WASAffineKSamplerAdvanced:
@@ -734,7 +827,13 @@ class WASAffineKSamplerAdvanced:
         if not isinstance(latent_image, dict) or "samples" not in latent_image:
             raise ValueError("latent_image must be a LATENT dict with 'samples'")
         cur = latent_image["samples"]
-        if not isinstance(cur, _torch.Tensor) or cur.dim() not in (4, 5):
+        if is_nested_tensor(cur):
+            cur_ndim = cur.ndim
+        elif isinstance(cur, _torch.Tensor):
+            cur_ndim = cur.dim()
+        else:
+            raise ValueError("LATENT['samples'] must be a Tensor or NestedTensor")
+        if cur_ndim not in (4, 5):
             raise ValueError("LATENT['samples'] must be 4D [B,C,H,W] or 5D [B,C,F,H,W]")
 
         sched = affine_schedule or {}
@@ -1040,21 +1139,23 @@ class WASAffineKSamplerAdvanced:
 
         if mask_img is None:
             try:
-                if cur.dim() == 5:
-                    b, c, f, h, w = cur.shape
-                    mask_img = _torch.zeros((b * f, h, w), dtype=cur.dtype, device=cur.device)
+                cur_for_mask = cur.tensors[0] if is_nested_tensor(cur) else cur
+                if cur_for_mask.dim() == 5:
+                    b, c, f, h, w = cur_for_mask.shape
+                    mask_img = _torch.zeros((b * f, h, w), dtype=cur_for_mask.dtype, device=cur_for_mask.device)
                 else:
-                    b, c, h, w = cur.shape
-                    mask_img = _torch.zeros((b, h, w), dtype=cur.dtype, device=cur.device)
+                    b, c, h, w = cur_for_mask.shape
+                    mask_img = _torch.zeros((b, h, w), dtype=cur_for_mask.dtype, device=cur_for_mask.device)
             except Exception:
                 import torch as _torch
-                if isinstance(cur, _torch.Tensor):
-                    if cur.dim() == 5:
-                        b, c, f, h, w = cur.shape
-                        mask_img = _torch.zeros((b * f, h, w), dtype=cur.dtype, device=cur.device)
-                    elif cur.dim() == 4:
-                        b, c, h, w = cur.shape
-                        mask_img = _torch.zeros((b, h, w), dtype=cur.dtype, device=cur.device)
+                cur_for_mask = cur.tensors[0] if is_nested_tensor(cur) else cur
+                if isinstance(cur_for_mask, _torch.Tensor):
+                    if cur_for_mask.dim() == 5:
+                        b, c, f, h, w = cur_for_mask.shape
+                        mask_img = _torch.zeros((b * f, h, w), dtype=cur_for_mask.dtype, device=cur_for_mask.device)
+                    elif cur_for_mask.dim() == 4:
+                        b, c, h, w = cur_for_mask.shape
+                        mask_img = _torch.zeros((b, h, w), dtype=cur_for_mask.dtype, device=cur_for_mask.device)
                 else:
                     mask_img = None
         return ({"samples": cur}, mask_img)
@@ -1474,13 +1575,19 @@ class WASAffinePatternNoise:
                 if not isinstance(lat, dict) or "samples" not in lat:
                     raise ValueError("generate_noise expects a LATENT dict with 'samples'")
                 x = lat["samples"]
-                if not isinstance(x, _torch.Tensor) or x.dim() < 4:
+                if is_nested_tensor(x):
+                    x_ndim = x.ndim
+                elif isinstance(x, _torch.Tensor):
+                    x_ndim = x.dim()
+                else:
+                    raise ValueError("LATENT['samples'] must be a Tensor or NestedTensor")
+                if x_ndim < 4:
                     raise ValueError("LATENT['samples'] must be a 4D/5D tensor")
                 
                 batch_inds = lat["batch_index"] if "batch_index" in lat else None
                 base_noise = comfy.sample.prepare_noise(x, self.seed, batch_inds)
                 
-                if x.dim() == 5:
+                if x_ndim == 5:
                     b, c, f, h, w = x.shape
                     b_eff = b * f
                     device, dtype = x.device, x.dtype

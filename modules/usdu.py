@@ -52,6 +52,14 @@ def run_usdu_pipeline(
         lat_samples = latents["samples"]
     else:
         lat_samples = latents
+
+    if isinstance(lat_samples, torch.Tensor) and lat_samples.dim() == 5 and lat_samples.shape[2] == 1:
+        lat_samples = lat_samples[:, :, 0, :, :]
+        if isinstance(latents, dict):
+            latents = dict(latents)
+            latents["samples"] = lat_samples
+        else:
+            latents = {"samples": lat_samples}
     
     # Determine batch dimension size
     # Latents are [B,C,H,W] for images or [B,C,F,H,W] for video

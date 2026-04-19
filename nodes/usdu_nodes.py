@@ -4,7 +4,12 @@ from ..modules.usdu import run_usdu_pipeline
 
 from .affine_nodes import (
     PATTERN_CHOICES_LIST,
+    is_nested_tensor,
+    unwrap_nested_tensor,
+    wrap_nested_tensor,
 )
+
+from .extra_nodes import WASWANVAEEncode
 
 
 def calculate_optimal_tile_size(image_width, image_height, max_tile_size=1024, increment=64):
@@ -110,12 +115,15 @@ class WASUltimateCustomAdvancedAffineNoUpscaleLatent:
         tile_overlap=8,
         batch_size=0,
         verbose=False,
-        noise=None,  # Deprecated, kept for backward compatibility
+        noise=None,
     ):
         import torch
         import math
+        acc_device = torch.device("cpu")
         
-        lat_samples = latents["samples"] if isinstance(latents, dict) else latents
+        lat_samples_raw = latents["samples"] if isinstance(latents, dict) else latents
+        tensors, was_nested = unwrap_nested_tensor(lat_samples_raw)
+        lat_samples = tensors[0]
         is_video = lat_samples.dim() == 5
         
         if is_video:
@@ -134,31 +142,67 @@ class WASUltimateCustomAdvancedAffineNoUpscaleLatent:
                 print(f"[WAS Affine][USDU Latent] Auto-calculated tile size: {tile_width}x{tile_height} for latent {w}x{h}")
         
         if int(tile_width) <= 0 or int(tile_height) <= 0 or is_video:
-            # No tiling - process as single pass
-            return run_usdu_pipeline(
-                latents=latents,
-                model=model,
-                positive=positive,
-                negative=negative,
-                seed=seed,
-                steps=steps,
-                cfg=cfg,
-                sampler_name=sampler_name,
-                scheduler=scheduler,
-                denoise=denoise,
-                affine_interval=affine_interval,
-                max_scale=max_scale,
-                max_bias=max_bias,
-                pattern=pattern,
-                affine_seed=affine_seed,
-                affine_seed_increment=affine_seed_increment,
-                affine_schedule=affine_schedule,
-                external_mask=external_mask,
-                options=options,
-                noise_options=noise_options,
-                batch_size=batch_size,
-                verbose=verbose,
-            )
+            # No tiling - process as single pass or frame-chunked for video latents
+            if is_video and int(batch_size) > 0:
+                step = int(batch_size)
+                parts = []
+                for f0 in range(0, f, step):
+                    f1 = min(f0 + step, f)
+                    chunk = lat_samples[:, :, f0:f1, :, :]
+                    out_chunk, = run_usdu_pipeline(
+                        latents={"samples": chunk},
+                        model=model,
+                        positive=positive,
+                        negative=negative,
+                        seed=seed,
+                        steps=steps,
+                        cfg=cfg,
+                        sampler_name=sampler_name,
+                        scheduler=scheduler,
+                        denoise=denoise,
+                        affine_interval=affine_interval,
+                        max_scale=max_scale,
+                        max_bias=max_bias,
+                        pattern=pattern,
+                        affine_seed=affine_seed,
+                        affine_seed_increment=affine_seed_increment,
+                        affine_schedule=affine_schedule,
+                        external_mask=external_mask,
+                        options=options,
+                        noise_options=noise_options,
+                        batch_size=0,
+                        verbose=verbose,
+                    )
+                    samples_chunk = out_chunk["samples"] if isinstance(out_chunk, dict) else out_chunk
+                    parts.append(samples_chunk)
+                merged = torch.cat(parts, dim=2)
+                out_samples = wrap_nested_tensor([merged], was_nested)
+                return ({"samples": out_samples},)
+            else:
+                return run_usdu_pipeline(
+                    latents=latents,
+                    model=model,
+                    positive=positive,
+                    negative=negative,
+                    seed=seed,
+                    steps=steps,
+                    cfg=cfg,
+                    sampler_name=sampler_name,
+                    scheduler=scheduler,
+                    denoise=denoise,
+                    affine_interval=affine_interval,
+                    max_scale=max_scale,
+                    max_bias=max_bias,
+                    pattern=pattern,
+                    affine_seed=affine_seed,
+                    affine_seed_increment=affine_seed_increment,
+                    affine_schedule=affine_schedule,
+                    external_mask=external_mask,
+                    options=options,
+                    noise_options=noise_options,
+                    batch_size=batch_size,
+                    verbose=verbose,
+                )
         else:
             # Tiled USDU in latent space
             tw = max(1, int(tile_width))
@@ -252,7 +296,8 @@ class WASUltimateCustomAdvancedAffineNoUpscaleLatent:
             if verbose:
                 print(f"[WAS Affine][USDU Latent Tiling] Completed {tile_count} tiles, output shape: {tuple(result_lat.shape)}")
             
-            return ({"samples": result_lat},)
+            out_samples = wrap_nested_tensor([result_lat], was_nested)
+            return ({"samples": out_samples},)
 
 class WASUltimateCustomAdvancedAffineNoUpscale:
     CATEGORY = "image/upscaling"
@@ -296,6 +341,7 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 "tiled_temporal_overlap": ("INT", {"default": 8, "min": 0, "max": 512, "step": 1, "tooltip": "Temporal overlap (frames) for video tiled decode."}),
                 "batch_size": ("INT", {"default": 0, "min": 0, "max": 4096, "step": 1, "tooltip": "Process the batch dimension in chunks of this size to reduce peak VRAM. 0 = process all at once. Applies to non-tiling path."}),
                 "merge_frames_in_batch": ("BOOLEAN", {"default": True, "tooltip": "If decoded IMAGE is 5D [B,F,H,W,C], merge F into batch for concat."}),
+                "vae_encode_batch_mode": (["images", "frames"], {"default": "images", "tooltip": "images: treat batch dim as separate images [B,C,1,H,W]. frames: treat batch dim as video frames [1,C,B,H,W]."}),
             },
             "hidden": {
                 "verbose": ("BOOLEAN", {"default": False, "tooltip": "Enable detailed logging of batch processing progress."}),
@@ -337,16 +383,48 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
         tiled_temporal_overlap=8,
         batch_size=0,
         merge_frames_in_batch=True,
+        vae_encode_batch_mode="images",
         verbose=False,
-        noise=None,  # Deprecated, kept for backward compatibility
+        noise=None,
     ):
         import torch
         import math
+        acc_device = torch.device("cpu")
         is_video = image.dim() == 5
         if is_video:
             b, f, h, w, c = image.shape
+            image = image.view(b * f, h, w, c)
+            b = b * f
+            is_video = False
+            vae_encode_batch_mode = "images"
         else:
             b, h, w, c = image.shape
+
+        def _adapt_latent_channels(lat_dict):
+            samples = lat_dict["samples"] if isinstance(lat_dict, dict) else lat_dict
+            if not isinstance(samples, torch.Tensor) or samples.dim() < 2:
+                return lat_dict
+            target_c = None
+            try:
+                lf = getattr(model, "latent_format", None)
+                lm = getattr(lf, "latents_mean", None)
+                if isinstance(lm, torch.Tensor) and lm.dim() >= 2:
+                    target_c = lm.shape[1]
+            except Exception:
+                target_c = None
+            if target_c is None or samples.shape[1] == target_c:
+                return lat_dict
+            if target_c % samples.shape[1] != 0:
+                return lat_dict
+            repeat = target_c // samples.shape[1]
+            shape_rest = samples.shape[2:]
+            reps = [1, repeat] + [1] * len(shape_rest)
+            samples_adapt = samples.repeat(*reps)
+            if isinstance(lat_dict, dict):
+                out = dict(lat_dict)
+                out["samples"] = samples_adapt
+                return out
+            return samples_adapt
 
         # Auto-calculate tile sizes if set to -1
         if int(tile_width) == -1 or int(tile_height) == -1:
@@ -371,13 +449,10 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                     if verbose:
                         print(f"[WAS Affine][USDU Image] Processing batch {batch_start}:{batch_end} of {b}")
                     
-                    # Extract batch chunk
                     batch_img = image[batch_start:batch_end]
-                    
-                    # Encode batch
-                    with torch.no_grad():
-                        latent = vae.encode(batch_img)
-                    lat_dict = latent if isinstance(latent, dict) else {"samples": latent}
+
+                    lat_dict = WASWANVAEEncode.encode(WASWANVAEEncode, vae, batch_img, vae_encode_batch_mode)[0]
+                    lat_dict = _adapt_latent_channels(lat_dict)
                     
                     # Process through USDU pipeline (no batch_size here since we already split)
                     out_lat, = run_usdu_pipeline(
@@ -414,10 +489,8 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                 if verbose:
                     print(f"[WAS Affine][USDU Image] Batch processing complete. Final latent shape: {tuple(merged_tensor.shape)}")
             else:
-                # Process all at once
-                with torch.no_grad():
-                    latent = vae.encode(image)
-                lat_dict = latent if isinstance(latent, dict) else {"samples": latent}
+                lat_dict = WASWANVAEEncode.encode(WASWANVAEEncode, vae, image, vae_encode_batch_mode)[0]
+                lat_dict = _adapt_latent_channels(lat_dict)
                 out_lat, = run_usdu_pipeline(
                     latents=lat_dict,
                     model=model,
@@ -513,94 +586,141 @@ class WASUltimateCustomAdvancedAffineNoUpscale:
                         print(f"[WAS Affine][USDU Tiling] Processing tile {tile_count} at ({y0}:{y1}, {x0}:{x1})")
                     
                     tile_img = image[:, y0:y1, x0:x1, :]
-                    
-                    with torch.no_grad():
-                        lat_tile = vae.encode(tile_img)
-                    lat_tile = lat_tile if isinstance(lat_tile, dict) else {"samples": lat_tile}
-                    lat_samples = lat_tile["samples"]
-                    
-                    out_lat_tile, = run_usdu_pipeline(
-                        latents=lat_tile,
-                        model=model,
-                        positive=positive,
-                        negative=negative,
-                        seed=seed,
-                        steps=steps,
-                        cfg=cfg,
-                        sampler_name=sampler_name,
-                        scheduler=scheduler,
-                        denoise=denoise,
-                        affine_interval=affine_interval,
-                        max_scale=max_scale,
-                        max_bias=max_bias,
-                        pattern=pattern,
-                        affine_seed=affine_seed,
-                        affine_seed_increment=affine_seed_increment,
-                        affine_schedule=affine_schedule if isinstance(affine_schedule, dict) else ({}),
-                        external_mask=external_mask,
-                        options=options,
-                        noise_options=noise_options,
-                    )
-                    lat_out_tile = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
-                    
-                    with torch.no_grad():
-                        if tiled_decode:
-                            tile_size = int(tiled_tile_size)
-                            overlap = int(tiled_overlap)
-                            if tile_size < overlap * 4:
-                                overlap = tile_size // 4
-                            try:
-                                s_comp = int(vae.spacial_compression_decode())
-                            except Exception:
-                                s_comp = 8
-                            tile_x = max(1, tile_size // max(1, s_comp))
-                            tile_y = max(1, tile_size // max(1, s_comp))
-                            overlap_lat = max(0, overlap // max(1, s_comp))
-                            decoded_tile = vae.decode_tiled(lat_out_tile,
-                                                           tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat)
-                        else:
-                            decoded_tile = vae.decode(lat_out_tile)
-                    
-                    if decoded_tile.dim() == 5:
-                        b_tmp, f_tmp, h_tmp, w_tmp, c_tmp = decoded_tile.shape
-                        decoded_tile = decoded_tile.view(b_tmp * f_tmp, h_tmp, w_tmp, c_tmp)
-                    
-                    if full_img is None:
-                        bsz, h_out, w_out, c_out = decoded_tile.shape
-                        full_img = torch.zeros((bsz, h, w, c_out), device=decoded_tile.device, dtype=decoded_tile.dtype)
-                        full_wts = torch.zeros((1, h, w, 1), device=decoded_tile.device, dtype=decoded_tile.dtype)
-                    
-                    th_dec, tw_dec = decoded_tile.shape[1], decoded_tile.shape[2]
-                    
-                    oy1 = min(y0 + th_dec, h)
-                    ox1 = min(x0 + tw_dec, w)
-                    th_out = oy1 - y0
-                    tw_out = ox1 - x0
-                    
-                    tile_crop = decoded_tile[:, :th_out, :tw_out, :]
-                    
-                    ov_h = min(ov, th_out // 2)
-                    ov_w = min(ov, tw_out // 2)
-                    wmask = torch.ones((1, th_out, tw_out, 1), device=tile_crop.device, dtype=tile_crop.dtype)
-                    
-                    if ov_w > 0:
-                        if x0 > 0:
-                            ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
-                            wmask[:, :, :ov_w, :] *= ramp
-                        if ox1 < w:
-                            ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
-                            wmask[:, :, -ov_w:, :] *= ramp
-                    
-                    if ov_h > 0:
-                        if y0 > 0:
-                            ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
-                            wmask[:, :ov_h, :, :] *= ramp
-                        if oy1 < h:
-                            ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
-                            wmask[:, -ov_h:, :, :] *= ramp
-                    
-                    full_img[:, y0:oy1, x0:ox1, :] += tile_crop * wmask
-                    full_wts[:, y0:oy1, x0:ox1, :] += wmask
+
+                    # Process this tile in chunks of batch_size to control VRAM
+                    do_chunk = (int(batch_size) > 0 and b > int(batch_size))
+                    weights_updated = False
+
+                    def _decode_and_accumulate(lat_tensor, bs, be):
+                        nonlocal full_img, full_wts, weights_updated
+                        with torch.no_grad():
+                            if tiled_decode:
+                                tile_size = int(tiled_tile_size)
+                                overlap_px = int(tiled_overlap)
+                                if tile_size < overlap_px * 4:
+                                    overlap_px = tile_size // 4
+                                try:
+                                    s_comp = int(vae.spacial_compression_decode())
+                                except Exception:
+                                    s_comp = 8
+                                tile_x = max(1, tile_size // max(1, s_comp))
+                                tile_y = max(1, tile_size // max(1, s_comp))
+                                overlap_lat = max(0, overlap_px // max(1, s_comp))
+                                decoded_tile = vae.decode_tiled(lat_tensor,
+                                                               tile_x=tile_x, tile_y=tile_y, overlap=overlap_lat)
+                            else:
+                                decoded_tile = vae.decode(lat_tensor)
+
+                        if decoded_tile.dim() == 5:
+                            b_tmp, f_tmp, h_tmp, w_tmp, c_tmp = decoded_tile.shape
+                            decoded_tile = decoded_tile.view(b_tmp * f_tmp, h_tmp, w_tmp, c_tmp)
+
+                        if full_img is None:
+                            bsz_total = b
+                            h_out, w_out, c_out = decoded_tile.shape[1], decoded_tile.shape[2], decoded_tile.shape[3]
+                            full_img = torch.zeros((bsz_total, h, w, c_out), device=acc_device, dtype=decoded_tile.dtype)
+                            full_wts = torch.zeros((1, h, w, 1), device=acc_device, dtype=decoded_tile.dtype)
+
+                        th_dec, tw_dec = decoded_tile.shape[1], decoded_tile.shape[2]
+                        oy1 = min(y0 + th_dec, h)
+                        ox1 = min(x0 + tw_dec, w)
+                        th_out = oy1 - y0
+                        tw_out = ox1 - x0
+
+                        tile_crop = decoded_tile[:, :th_out, :tw_out, :]
+
+                        # Build blending weights once per tile
+                        ov_h = min(ov, th_out // 2)
+                        ov_w = min(ov, tw_out // 2)
+                        wmask = torch.ones((1, th_out, tw_out, 1), device=tile_crop.device, dtype=tile_crop.dtype)
+                        if ov_w > 0:
+                            if x0 > 0:
+                                ramp = torch.linspace(0, 1, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
+                                wmask[:, :, :ov_w, :] *= ramp
+                            if ox1 < w:
+                                ramp = torch.linspace(1, 0, ov_w, device=tile_crop.device, dtype=tile_crop.dtype).view(1, 1, ov_w, 1)
+                                wmask[:, :, -ov_w:, :] *= ramp
+                        if ov_h > 0:
+                            if y0 > 0:
+                                ramp = torch.linspace(0, 1, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
+                                wmask[:, :ov_h, :, :] *= ramp
+                            if oy1 < h:
+                                ramp = torch.linspace(1, 0, ov_h, device=tile_crop.device, dtype=tile_crop.dtype).view(1, ov_h, 1, 1)
+                                wmask[:, -ov_h:, :, :] *= ramp
+
+                        tile_crop_cpu = tile_crop.to(acc_device)
+                        wmask_cpu = wmask.to(acc_device)
+                        full_img[bs:be, y0:oy1, x0:ox1, :] += tile_crop_cpu * wmask_cpu
+                        # Update weights once per tile (not per chunk)
+                        if not weights_updated:
+                            full_wts[:, y0:oy1, x0:ox1, :] += wmask_cpu
+                            weights_updated = True
+                        del decoded_tile, tile_crop, tile_crop_cpu, wmask, wmask_cpu
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+
+                    if do_chunk:
+                        step = int(batch_size)
+                        for bs in range(0, b, step):
+                            be = min(bs + step, b)
+                            batch_img = tile_img[bs:be]
+                            # Encode with WAN-friendly image-batch mode to keep F=1 per item
+                            lat_tile = WASWANVAEEncode.encode(WASWANVAEEncode, vae, batch_img, "images")[0]["samples"]
+                            out_lat_tile, = run_usdu_pipeline(
+                                latents={"samples": lat_tile},
+                                model=model,
+                                positive=positive,
+                                negative=negative,
+                                seed=seed,
+                                steps=steps,
+                                cfg=cfg,
+                                sampler_name=sampler_name,
+                                scheduler=scheduler,
+                                denoise=denoise,
+                                affine_interval=affine_interval,
+                                max_scale=max_scale,
+                                max_bias=max_bias,
+                                pattern=pattern,
+                                affine_seed=affine_seed,
+                                affine_seed_increment=affine_seed_increment,
+                                affine_schedule=affine_schedule if isinstance(affine_schedule, dict) else ({}),
+                                external_mask=external_mask,
+                                options=options,
+                                noise_options=noise_options,
+                                batch_size=0,
+                                verbose=False,
+                            )
+                            lat_out_tile = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
+                            _decode_and_accumulate(lat_out_tile, bs, be)
+                    else:
+                        # Single pass for all batches (encode as image-batch to keep F=1)
+                        lat_tile = WASWANVAEEncode.encode(WASWANVAEEncode, vae, tile_img, "images")[0]["samples"]
+                        out_lat_tile, = run_usdu_pipeline(
+                            latents={"samples": lat_tile},
+                            model=model,
+                            positive=positive,
+                            negative=negative,
+                            seed=seed,
+                            steps=steps,
+                            cfg=cfg,
+                            sampler_name=sampler_name,
+                            scheduler=scheduler,
+                            denoise=denoise,
+                            affine_interval=affine_interval,
+                            max_scale=max_scale,
+                            max_bias=max_bias,
+                            pattern=pattern,
+                            affine_seed=affine_seed,
+                            affine_seed_increment=affine_seed_increment,
+                            affine_schedule=affine_schedule if isinstance(affine_schedule, dict) else ({}),
+                            external_mask=external_mask,
+                            options=options,
+                            noise_options=noise_options,
+                            batch_size=0,
+                            verbose=False,
+                        )
+                        lat_out_tile = out_lat_tile["samples"] if isinstance(out_lat_tile, dict) else out_lat_tile
+                        _decode_and_accumulate(lat_out_tile, 0, b)
             
             out_img = full_img / (full_wts + 1e-8)
             
